@@ -18,5 +18,8 @@
     "feature-development"
   ],
   "skills": "./skills/",
-  "agents": "./agents/"
+  "agents": [
+    "./agents/code-reviewer.md",
+    "./agents/spec-compliance-reviewer.md"
+  ]
 }
