@@ -1,0 +1,129 @@
+<!--
+  app_spec.txt — RMP standardized application spec template.
+
+  PURPOSE
+  This file is the canonical, committed contract for ONE application. Humans read it
+  to know what's being built; the /rmp:spec-feature skill matches its voice; and the
+  rmp `spec-compliance-reviewer` agent audits diffs against the <compliance_rules>
+  block below. Keep it accurate — a vague spec produces a vague review.
+
+  HOW TO USE
+  - Copy this file to your app root as `app_spec.txt` (or `app_spec.md`).
+  - Fill every section. Delete sections that genuinely don't apply (e.g. <data_model>
+    for a static site) — but NEVER delete <compliance_rules>; that is what the
+    reviewer reads. An empty rule sub-block is fine; a missing one means "unchecked".
+  - Rules must be CHECKABLE. Prefer verbatim strings, explicit allowlists, and "never"
+    lists over prose. The reviewer can only enforce what it can pin to the diff.
+  - The reviewer also reads the app's CLAUDE.md. Where a rule lives in both, this file
+    wins. Don't duplicate prose — put the enforceable form here, the rationale in CLAUDE.md.
+
+  Lines in <!-- --> are guidance and should be removed or replaced.
+-->
+<project_specification>
+
+  <project_name><!-- e.g. Crema Arena — Specialty Coffee Competition Platform --></project_name>
+
+  <overview>
+    <!-- 1-2 paragraphs: what this app is, who uses it, why it exists. Plain language. -->
+  </overview>
+
+  <technology_stack>
+    <!-- Framework, language, datastore, auth, deploy target. One line each. -->
+  </technology_stack>
+
+  <surfaces>
+    <!-- Every distinct user-facing surface (page group, route, CLI command, API audience).
+         For each: who it's for, auth posture, and how its state is produced (rendered,
+         polled, pushed). The reviewer uses this to check live-surface reachability. -->
+    <!-- Example:
+    <surface name="live-display" route="/live/[id]" audience="public" auth="none"
+             state="polled: /api/.../current-duel (1s), /bracket (5s), /leaderboard (5s)"/>
+    -->
+  </surfaces>
+
+  <data_model>
+    <!-- New/affected tables, columns, migrations. Omit if the app has no datastore. -->
+  </data_model>
+
+  <api_surface>
+    <!-- Route list with request/response shape and error cases. Omit if none. -->
+  </api_surface>
+
+  <design_system>
+    <!-- Where tokens live in CODE (the source of truth), not just their values. -->
+    <color_tokens><!-- where defined + the canonical names --></color_tokens>
+    <typography><!-- font variables/families and how they're loaded --></typography>
+    <components><!-- the shared primitives contributors must reuse --></components>
+    <iconography><!-- brand assets and where they live --></iconography>
+  </design_system>
+
+  <!--
+    ============================================================================
+    COMPLIANCE RULES — the section the rmp spec-compliance-reviewer enforces.
+    Everything here must be phrased as a checkable assertion about a diff.
+    ============================================================================
+  -->
+  <compliance_rules>
+
+    <copy_rules>
+      <!-- Locale, voice, casing, punctuation, and any FORMATTING rules with a grep-able
+           signature. Each <rule> is one enforceable assertion. The optional `grep`
+           attribute gives the reviewer a concrete pattern to search changed UI for.
+           Examples (replace with your app's):
+      <rule>All user-facing text is pt-BR, addressed as "você", short imperative verbs.</rule>
+      <rule>Sentence case for headings, buttons, modal titles. The only ALL CAPS is "TNT".</rule>
+      <rule grep=" x |\dx\d">Score format is `N × M` using Unicode × (U+00D7) with surrounding spaces, never ASCII "x".</rule>
+      <rule>Pluralize: `1 voto` / `N votos`; `1 vitória` / `N vitórias`.</rule>
+      <rule>Max one "!" per screen. No trailing period on button labels.</rule>
+      -->
+    </copy_rules>
+
+    <copy_examples>
+      <!-- Prescribed strings that must appear VERBATIM. The reviewer flags drift.
+      <example>Voto registrado. X de Y votos.</example>
+      <example>[Nome] entra como wildcard.</example>
+      -->
+    </copy_examples>
+
+    <design_tokens>
+      <!-- The allowlist + the "never" rule, so raw values are catchable.
+      <rule>Colors come only from globals.css variables / tailwind.config.ts aliases.</rule>
+      <rule grep="#[0-9a-fA-F]{3,8}">No raw hex or arbitrary Tailwind values in app code.</rule>
+      <rule>Fonts only via --font-display / --font-serif / --font-body / --font-mono. No @font-face, no next/font/google for these families.</rule>
+      -->
+    </design_tokens>
+
+    <feedback_ui>
+      <!-- Required primitives and banned native APIs.
+      <rule>Transient feedback uses useToast(); destructive confirms use ConfirmationModal.</rule>
+      <rule grep="alert\(|confirm\(">No native alert() / confirm() anywhere.</rule>
+      -->
+    </feedback_ui>
+
+    <reachability>
+      <!-- How server-side changes must reach live surfaces. Names the polled endpoints
+           (or the push channel) so the reviewer can confirm a change actually surfaces.
+      <rule>Live surfaces derive all state from polling current-duel / bracket / leaderboard.
+            A server change meant to reach them must land in one of those endpoints — there is no WebSocket/SSE.</rule>
+      -->
+    </reachability>
+
+    <asset_rules>
+      <!-- Brand-asset preferences and upload/storage policy.
+      <rule>Prefer brand SVGs in public/assets/ over icon-lib substitutes when touching those spots.</rule>
+      <rule grep="/public/uploads/">Uploads go through lib/file-upload.ts → blob storage; store the full HTTPS URL. No local-filesystem upload paths.</rule>
+      -->
+    </asset_rules>
+
+  </compliance_rules>
+
+  <key_interactions>
+    <!-- The handful of non-obvious flows a contributor must get right (state machines,
+         cascades, ordering constraints). Reference, not enforced by the reviewer. -->
+  </key_interactions>
+
+  <success_criteria>
+    <!-- Testable, surface-level acceptance for the app as a whole. -->
+  </success_criteria>
+
+</project_specification>

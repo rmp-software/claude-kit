@@ -1,0 +1,22 @@
+{
+  "name": "rmp",
+  "displayName": "RMP Feature Harness",
+  "description": "Spec-driven feature harness for RMP Software: spec-feature → breakdown-feature → work-iteration → continue-feature, plus a standalone adversarial critique and a generic spec-compliance reviewer. Skills invoke as /rmp:<name>.",
+  "version": "0.1.0",
+  "author": {
+    "name": "RMP Software"
+  },
+  "homepage": "https://github.com/rmp-software/claude-kit",
+  "repository": "https://github.com/rmp-software/claude-kit",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "spec-driven",
+    "linear",
+    "code-review",
+    "harness",
+    "feature-development"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/"
+}

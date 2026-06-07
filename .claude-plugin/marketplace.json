@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-kit",
+  "description": "RMP Software's company-wide Claude Code tooling — shared skills, agents, and harnesses installable across every repo.",
+  "owner": {
+    "name": "RMP Software",
+    "email": "lucas.rmagalhaes@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "rmp",
+      "description": "Spec-driven feature harness: write a spec, break it into Linear issues, then implement each sub-issue with an adversarial coder/reviewer split and hard evidence gates. Includes a generic, spec-driven compliance reviewer. Skills invoke as /rmp:<name>.",
+      "source": "./plugins/rmp",
+      "category": "workflow",
+      "author": {
+        "name": "RMP Software"
+      },
+      "homepage": "https://github.com/rmp-software/claude-kit/tree/main/plugins/rmp"
+    }
+  ]
+}
