@@ -114,6 +114,8 @@ If anything is missing or fabricated, treat it as a retry (go to Step 7 with a c
 
 Two review axes run as **separate subagents**: a correctness reviewer (always) and a spec-compliance reviewer (when the diff touches user-facing surfaces). Both must clear before Step 7's APPROVE.
 
+**Dispatch them CONCURRENTLY when both apply** — put both `Agent` calls in a *single message* so they run in parallel. They're independent and you block on both before deciding the verdict, so sequential dispatch just doubles the wall-clock for no benefit. (Only the correctness reviewer runs for purely backend diffs.) Wait for both, then consolidate their findings into one verdict and, if retrying, one combined coder retry.
+
 **6a — Correctness reviewer (always).** Use the `Agent` tool. Subagent type: `rmp:code-reviewer` (bundled with this plugin). **Pass `model: "sonnet"`** to override the default, so a different model than the coder reviews the work — different model, different blind spots. (Optional: if you have the `pr-review-toolkit` plugin installed and the diff is error-handling-heavy or type-heavy, also dispatch its `silent-failure-hunter` / `type-design-analyzer`.)
 
 Reviewer prompt — adversarial framing:
@@ -158,6 +160,8 @@ Do NOT return "looks good" or any variant. Approval requires evidence of checkin
 **6b — Spec-compliance reviewer (user-facing diffs only).** If the diff touches user-facing surfaces — UI/component/copy files, or changes the shape of a live/polled endpoint — ALSO dispatch the `rmp:spec-compliance-reviewer` agent (Subagent type: `rmp:spec-compliance-reviewer`; it pins `model: sonnet` itself). It audits the contracts the correctness reviewer doesn't, reading them from the **touched app's own** `app_spec.txt` `<compliance_rules>` + `CLAUDE.md`: copy/locale, casing, prescribed strings, design tokens, fonts/assets, feedback-UI primitives, and live-surface reachability. Because it derives every rule from the app's spec, it works for any app that follows the RMP app_spec template. Pass it the same branch/diff + the sub-issue's UI/Copy acceptance criteria. Skip it for purely backend sub-issues (schema, internal libs, API logic with no response-shape or copy change).
 
 Treat a `BLOCKER` from the spec-compliance reviewer exactly like a correctness BLOCK (Step 7 retry path). `WARN`/`NIT` are non-blocking but should be reported and, if cheap, folded into the same retry.
+
+**Judge each finding against the breakdown — do not blindly comply.** The reviewers see only one sub-issue's diff; they lack the cross-issue plan and will sometimes flag a "missing X" or "dead code Y" that is *deliberately* a sibling sub-issue's scope (e.g. a constant/payload field added here but consumed two issues later, or "the duration chart isn't implemented" when that's a separate issue). Verify the objection against `docs/specs/<slug>.md` + the Linear breakdown: if it's genuinely out-of-scope-by-design, **reject it with a one-line rationale** (and say so in the PR/Linear note) rather than pulling the work forward. Conversely, when two reviewers disagree (e.g. one wants font-mono, the app_spec mandates it), the spec-compliance reviewer's spec-derived ruling wins. As orchestrator you own the verdict — the reviewers inform it. Also: a finding you can fully verify yourself from the diff (a one-line copy/type fix) can be confirmed and merged without burning another full review round on it.
 
 ### Step 7 — Handle the verdict
 
@@ -276,6 +280,18 @@ A sub-issue cannot pass to commit unless ALL of these are present in the convers
 5. Reviewer APPROVE block with ≥5 specific checks
 
 If any is missing, you cannot proceed to Step 8.
+
+### UI / visual verification — hard-won specifics
+
+These come from real failures; bake them into the coder prompt AND check them yourself when you read the screenshots (the jank check is yours too, not just the reviewer's):
+
+- **Test at the phone viewport, not desktop/tablet** (e.g. 393×852 / a phone `devices[...]` profile). For mobile-first apps the phone is the real surface; defer to the project's CLAUDE.md if it names a size. When the app is iOS-sensitive, also verify on **WebKit (iPhone-emulated)**, not just Chromium.
+- **Visual jank is a blocker, not a nit.** "Not broken but janky" — misalignment, overflow, clipped/over-wrapped text, cramped spacing, labels colliding/clipping at the right edge, jumpy/unsettled charts — fails the gate even when the feature functions. Actually *look* at the screenshot; a green assertion is not a passing render.
+- **Disable chart/animation for screenshots.** Recharts (and similar) animate from 0; a headless capture catches them mid-animation and bars/lines look absent even though the data is in the DOM. Set `isAnimationActive={false}` (also kills "jumpy chart" jank). If a value is "in the DOM but not painted," suspect animation before suspecting a real bug.
+- **Dynamic colors: no `var(--…)` inside an inline `style`** (a common CLAUDE.md rule). Tailwind JIT only generates classes whose *literal* strings appear in source, so `bg-[${dynamicVar}]` silently produces nothing — use a STATIC class lookup (`Record<Key, "bg-[var(--token-a)]" | ...>`) or a CSS-custom-property pattern. Recharts `fill`/`stroke` as a `var(--…)` SVG *attribute* (not a `style` object) is fine.
+- **Playwright MCP server CWD may be the repo's PARENT**, so screenshot/`fetch`-dump artifacts can land outside the repo (or at the repo root). Always have the coder write under `.playwright-mcp/<issue-id>-*`, then in Step 5 sweep both the repo root AND the parent dir and move strays in. Confirm `git status` shows only source changes.
+- **For deterministic UI verification, seed a fixture first.** Whatever's in the dev DB won't reliably exercise empty/edge/threshold states. Seed a representative dataset (dev-only, guarded against non-local `DATABASE_URL`) before the browser checks — and prefer a committed fixture if a later sub-issue builds the e2e harness.
+- **e2e assertions must bite.** Page-global `getByText` often matches unrelated surfaces (lists, tooltips) → tautological. Scope to the component under test, assert real *values* (counts/deltas), not just that labels exist, and prove it by mutating the fixture to confirm the assertion goes red.
 
 ## Cross-session resumption
 
