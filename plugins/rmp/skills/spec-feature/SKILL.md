@@ -121,7 +121,7 @@ feature_branch:
 </feature_specification>
 ```
 
-Fill what you can from the problem statement and project context; leave honest `<!-- TODO: confirm with user — … -->` comments for what you don't know. Omit `<data_model>` / `<api_surface>` entirely when they don't apply (don't leave empty stubs). The XML tags exist so `/breakdown-feature` can parse sections deterministically — keep the tag names exactly as written.
+Fill what you can from the problem statement and project context; leave honest `<!-- TODO: confirm with user — … -->` comments for what you don't know. Omit `<data_model>` / `<api_surface>` / `<ui_copy>` entirely when they don't apply (a backend-only feature has no `<ui_copy>`; a frontend-only one has no `<api_surface>`) — don't leave empty stubs. The XML tags exist so `/breakdown-feature` can parse sections deterministically — keep the tag names exactly as written.
 
 ### 4. Write the file
 

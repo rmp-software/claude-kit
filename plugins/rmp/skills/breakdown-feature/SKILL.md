@@ -62,7 +62,7 @@ The spec body is XML-tagged (`<feature_specification>` with `<overview>`, `<surf
 **Child sub-issues** — one per discrete deliverable. Sources, in order of preference:
 
 1. If the spec's `<breakdown_sketch>` has content, use those bullets as the starting list.
-2. Otherwise, draft from `<surfaces_affected>` + `<data_model>` + `<api_surface>` + `<ui_copy>` — one issue per natural unit of work.
+2. Otherwise, draft from whichever of `<surfaces_affected>` / `<data_model>` / `<api_surface>` / `<ui_copy>` are present — one issue per natural unit of work. (A backend-only feature legitimately has no `<ui_copy>`; a frontend-only one has no `<api_surface>`. Don't treat an absent section as missing work — but if *all* of these are empty and there's no `<breakdown_sketch>`, stop and tell the user the spec is too thin to break down.)
 
 Each child issue's description MUST contain:
 - A one-line summary

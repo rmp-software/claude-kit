@@ -64,7 +64,7 @@ If reviewing a PR, also read its description for stated intent.
 Read /CLAUDE.md for the project's rules. Treat any deviation as a finding.
 
 === Your standard ===
-Assume there are bugs. You must produce ONE of these two outputs:
+Assume there are bugs. Lead your response with a single `VERDICT: BLOCK|APPROVE|PARTIAL` line (so the caller can consolidate without parsing prose), then produce ONE of these below it:
 
 BLOCK: a numbered list of concrete issues. Each issue must include:
   - file:line reference

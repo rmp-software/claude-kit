@@ -25,8 +25,11 @@ mechanical work down to Sonnet subagents.
   finished sub-issue instead of verbatim transcripts.
 - **work-iteration — stable-prefix prompt ordering** for subagent dispatches, so repeated
   coder/reviewer calls within a feature share the API prompt cache.
-- **work-iteration — cost visibility (autonomous mode):** per-sub-issue token spend in the
-  running log; per-feature total + outlier flag in the morning report.
+- **work-iteration — runaway visibility (autonomous mode):** track the *observable* spend
+  proxies per sub-issue (retries, review rounds, dispatch count) and summarize outliers in
+  the morning report, with a pointer to `/cost` for the actual token figure. The
+  orchestrator logs a real token count only if its runtime surfaces subagent usage, and
+  never fabricates one.
 - **spec-feature — scoped prior-spec reading:** scan overviews, full-read only
   topically-adjacent specs instead of slurping every historical spec.
 - **critique / code-reviewer — minor:** fixed-framing-first prompt ordering; a leading
