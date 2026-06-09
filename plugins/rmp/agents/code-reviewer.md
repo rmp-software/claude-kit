@@ -44,6 +44,11 @@ null inputs — line Y returns early when Z is undefined" is a check.
 Do NOT return "looks good" or any approval without evidence of checking. If you only have
 time for a partial review, return **PARTIAL** with what you checked — not APPROVE.
 
+**Lead with a single `VERDICT: BLOCK|APPROVE|PARTIAL` line**, then the details below it, so
+the caller can consolidate your result without parsing prose. This is a formatting rule, not
+a license to shorten — the numbered findings / checks below the verdict line are still required
+in full; the evidence *is* the deliverable.
+
 ## Check, at minimum
 
 1. **Stated intent** — does the diff match the commit message / PR body / issue acceptance

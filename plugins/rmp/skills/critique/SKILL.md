@@ -45,7 +45,9 @@ Ask the user (or pick a default based on the diff):
 
 ### Step 3 — Dispatch with Sonnet override
 
-Use the `Agent` tool. Pass `model: "sonnet"` to override the default. The Sonnet/Opus split matters — different model = different blind spots.
+Use the `Agent` tool. Pass `model: "sonnet"` to override the default. The Sonnet/Opus split matters — different model = different blind spots (and Sonnet is the cheaper tier for review-shaped work).
+
+Compose the prompt **fixed-framing-first, volatile-scope-last** (the standard + checklist below are invariant; the diff command and scope vary) so a re-critique (Step 5) on the same scope reuses the cache prefix. The reviewer reads `/CLAUDE.md` inside its own context — don't paste it in.
 
 Prompt (adapt the diff command and scope):
 
@@ -62,7 +64,7 @@ If reviewing a PR, also read its description for stated intent.
 Read /CLAUDE.md for the project's rules. Treat any deviation as a finding.
 
 === Your standard ===
-Assume there are bugs. You must produce ONE of these two outputs:
+Assume there are bugs. Lead your response with a single `VERDICT: BLOCK|APPROVE|PARTIAL` line (so the caller can consolidate without parsing prose), then produce ONE of these below it:
 
 BLOCK: a numbered list of concrete issues. Each issue must include:
   - file:line reference

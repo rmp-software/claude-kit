@@ -12,7 +12,7 @@ Always load before drafting:
 
 1. `/CLAUDE.md` (project conventions, branch policy, copy rules)
 2. `/app_spec.txt` if present (the canonical surface spec — match its voice and section style)
-3. `docs/specs/*.md` if present (prior specs to match tone and avoid repeating decisions)
+3. `docs/specs/*.md` if present — **scan, don't slurp.** List the filenames and read each one's `<overview>` (or first paragraph) to learn tone and what's already decided. Read a prior spec *in full* only when it's topically adjacent to this feature (touches the same surface/data). Reading every historical spec end-to-end is wasted context once the project has more than a handful.
 
 This skill is generic — it doesn't know what kind of project this is. Always derive voice, language, and conventions from the files above. **Never assume pt-BR / specific tech stack / specific domain unless the project files confirm it.**
 
@@ -34,7 +34,7 @@ Spec path: `docs/specs/<slug>.md`. If `docs/specs/` doesn't exist, create it.
 
 Use the template below. Fill what you can from the problem statement and project context. Leave honest TODOs for what you need from the user — don't invent details. Sections in the template are ordered for skim-readability: a contributor should be able to read just *Overview* and *Acceptance criteria* to know what's being built.
 
-**Spec template:**
+**Spec template** — YAML frontmatter (the downstream skills parse it) followed by an XML body that mirrors `app_spec.txt`'s structure: same tag vocabulary, same prescriptive voice, scoped to one feature. Keep the frontmatter exactly as below — `/breakdown-feature` and `/continue-feature` read those keys.
 
 ```markdown
 ---
@@ -46,77 +46,82 @@ linear_parent_issue:
 feature_branch:
 ---
 
-# <Feature name>
+<feature_specification>
 
-## Overview
+  <feature_name><!-- e.g. Judge Onboarding --></feature_name>
 
-1–2 paragraphs. What is this, who uses it, why now. Plain language — no jargon a new contributor wouldn't know.
+  <overview>
+    <!-- 1-2 paragraphs: what this is, who uses it, why now. Plain language —
+         no jargon a new contributor wouldn't know. -->
+  </overview>
 
-## Problem / motivation
+  <problem>
+    <!-- What breaks today, what's missing, what this unblocks. Link incident
+         reports, user feedback, or Linear issues if available. -->
+  </problem>
 
-What breaks today, what's missing, what does this unblock. Link to incident reports, user feedback, or Linear issues if available.
+  <scope>
+    <in_scope>
+      <!-- - bullet -->
+    </in_scope>
+    <out_of_scope>
+      <!-- Explicit cuts, stated so we don't argue about them later. -->
+    </out_of_scope>
+  </scope>
 
-## Scope
+  <surfaces_affected>
+    <!-- Pages, routes, APIs, or CLI commands that change. Mark new vs modified.
+         (Mirrors app_spec.txt <surfaces>, scoped to this feature.)
+         - `app/dashboard/judges/page.tsx` — new
+         - `app/api/judges/route.ts` — modified (add POST) -->
+  </surfaces_affected>
 
-**In scope:**
-- bullet
-- bullet
+  <data_model>
+    <!-- New tables/columns, migrations, indices. Omit this section if no DB change.
+    ```sql
+    ALTER TABLE events ADD COLUMN judges_count INT NOT NULL DEFAULT 3;
+    ``` -->
+  </data_model>
 
-**Out of scope (explicit cuts):**
-- bullet (so we don't argue about it later)
-- bullet
+  <api_surface>
+    <!-- New routes: request/response shape and error cases. Omit if no API change.
+    POST /api/events/:id/judges
+    Body: { name: string, email: string }
+    Response: { id, name, email }   Errors: 409 if email exists, 422 on validation -->
+  </api_surface>
 
-## Surfaces affected
+  <ui_copy>
+    <!-- Key strings in the project's primary language (check CLAUDE.md / app_spec.txt
+         for locale + copy rules — match them exactly). New components. Layout sketch
+         in ASCII or words. If the feature introduces prescribed strings that should
+         hold app-wide, promote them into the app's app_spec.txt <copy_examples> so the
+         spec-compliance reviewer enforces them. -->
+  </ui_copy>
 
-Which pages, routes, APIs, or CLI commands change. Mark new vs modified. Example:
-- `app/dashboard/judges/page.tsx` — new
-- `app/api/judges/route.ts` — modified (add POST)
-- `lib/bracket.ts` — modified (handle judge count)
+  <acceptance_criteria>
+    <!-- Testable assertions, "Given X, when Y, then Z." These map 1:1 to the test
+         steps /breakdown-feature bakes into each Linear sub-issue — write them precisely.
+    - [ ] Given an authenticated organizer, when they POST /api/judges with a valid body, then a judge row is created and 201 is returned
+    - [ ] Given … -->
+  </acceptance_criteria>
 
-## Data model
+  <risks>
+    <!-- What could go wrong, what needs a human decision, what depends on other
+         in-flight work. -->
+  </risks>
 
-New tables/columns, migrations needed, indices. Skip this section if no DB change.
+  <breakdown_sketch>
+    <!-- Optional. If you already sense how this splits into tasks, list them —
+         /breakdown-feature uses this as its starting list. Otherwise leave empty.
+    - Schema migration + types
+    - API route POST /api/judges
+    - Judge list UI -->
+  </breakdown_sketch>
 
-```sql
--- example
-ALTER TABLE events ADD COLUMN judges_count INT NOT NULL DEFAULT 3;
+</feature_specification>
 ```
 
-## API surface
-
-New routes, request/response shape, error cases. Skip if no API change.
-
-```
-POST /api/events/:id/judges
-Body: { name: string, email: string }
-Response: { id: string, name: string, email: string }
-Errors: 409 if email exists, 422 on validation
-```
-
-## UI / Copy
-
-Key strings in the project's primary language (check `CLAUDE.md` / `app_spec.txt` for the project's copy locale). New components needed. Layout sketch in ASCII or words.
-
-## Acceptance criteria
-
-Testable assertions. Format: "Given X, when Y, then Z." These map 1:1 to test steps in Linear sub-issues — so write them precisely.
-
-- [ ] Given an authenticated organizer, when they POST /api/judges with valid body, then a judge row is created and 201 is returned
-- [ ] Given …
-
-## Risks / open questions
-
-What could go wrong, what needs a human decision, what depends on other in-flight work.
-
-## Breakdown sketch (optional)
-
-If you already have a sense of how this breaks into tasks, list them here. `/breakdown-feature` will use this as a starting point. Otherwise leave empty.
-
-- Schema migration + types
-- API route POST /api/judges
-- Judge list UI
-- …
-```
+Fill what you can from the problem statement and project context; leave honest `<!-- TODO: confirm with user — … -->` comments for what you don't know. Omit `<data_model>` / `<api_surface>` / `<ui_copy>` entirely when they don't apply (a backend-only feature has no `<ui_copy>`; a frontend-only one has no `<api_surface>`) — don't leave empty stubs. The XML tags exist so `/breakdown-feature` can parse sections deterministically — keep the tag names exactly as written.
 
 ### 4. Write the file
 
