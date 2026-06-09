@@ -51,20 +51,22 @@ e. Write `.linear_features.json` with the captured fields.
 
 ### 3. Draft the issue tree
 
+The spec body is XML-tagged (`<feature_specification>` with `<overview>`, `<surfaces_affected>`, `<acceptance_criteria>`, etc.) — read the tags below, not markdown `##` headings.
+
 **Parent issue:**
-- Title: spec's H1 (e.g. "Photo Capture v2")
-- Description: a 3–5 line summary + link to the spec file (`docs/specs/<slug>.md`) + the Acceptance criteria list copied verbatim from the spec
+- Title: the spec's `<feature_name>` (e.g. "Photo Capture v2")
+- Description: a 3–5 line summary + link to the spec file (`docs/specs/<slug>.md`) + the `<acceptance_criteria>` list copied verbatim from the spec
 - Labels: `feature` if the team has one (check via `list_issue_labels`)
 - Priority: ask user or default to Medium
 
 **Child sub-issues** — one per discrete deliverable. Sources, in order of preference:
 
-1. If the spec has a `## Breakdown sketch` section, use those bullets as the starting list.
-2. Otherwise, draft from `## Surfaces affected` + `## Data model` + `## API surface` + `## UI / Copy` — one issue per natural unit of work.
+1. If the spec's `<breakdown_sketch>` has content, use those bullets as the starting list.
+2. Otherwise, draft from `<surfaces_affected>` + `<data_model>` + `<api_surface>` + `<ui_copy>` — one issue per natural unit of work.
 
 Each child issue's description MUST contain:
 - A one-line summary
-- A `## Acceptance criteria` block — pull the relevant rows from the spec's acceptance list
+- A `## Acceptance criteria` block (markdown — Linear descriptions are markdown) — pull the relevant rows from the spec's `<acceptance_criteria>`
 - A `## Test steps` block — concrete steps that prove the issue is done (e.g. "1. Run `npx tsc --noEmit` — exits 0. 2. Visit `/judges`, click 'Add', fill form, submit — judge appears in list.")
 
 Aim for sub-issues that are 2–8 hours of work each. Ones bigger than that should be split; ones smaller can be combined.

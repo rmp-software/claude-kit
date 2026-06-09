@@ -6,6 +6,15 @@ user-invocable: true
 
 You execute exactly one sub-issue under a feature's Linear parent — implementing, reviewing, committing, and opening a PR into the feature branch. You orchestrate; the actual code-writing and code-reviewing happen in **separate subagents** with isolated context. This separation is intentional and based on Anthropic's harness-design findings: agents reviewing their own work systematically overclaim quality.
 
+## Token discipline (context firewall)
+
+You are a long-running orchestrator — in autonomous mode you loop over many sub-issues, and **everything you pull into your own context gets re-read on every subsequent turn** (cache reads dominate the cost of a long agentic session). Quality comes from the subagents and the gates, not from you personally ingesting raw material. So:
+
+- **Treat subagents as a context firewall.** Bulky artifacts — full `git diff` output, screenshots/images, file bodies, full reviewer transcripts — belong in a *subagent's* throwaway context, not yours. From each subagent, keep only the compact result: a verdict, a findings list, and paths. This is why Step 5's evidence-reading is itself delegated to a subagent (below) rather than done inline.
+- **Don't retain what's already durable elsewhere.** A reviewer's full APPROVE checklist lives in the PR body (durable in GitHub). A sub-issue's outcome lives in Linear. Once written there, you don't need to carry the verbatim transcript forward — a one-line summary per completed sub-issue is enough for your running state.
+- **Order every subagent prompt stable-prefix-first** so the API prompt cache hits across dispatches. Put the invariant blocks first — the literal instruction `Read /CLAUDE.md and docs/specs/<slug>.md` plus any fixed framing — and the volatile per-issue text (the specific issue ID/title/description/diff) **last**. Every coder and reviewer in a feature shares the same `CLAUDE.md` + spec, so identical leading bytes turn N cold reads into one write + N−1 cheap reads.
+- **None of this lowers a gate.** You verify exactly as much; you just relocate the reading into ephemeral contexts and keep your own lean. Tiering work down to Sonnet subagents (verification, review) is quality-positive — a different model from the coder has different blind spots.
+
 ## When to use
 
 After `/breakdown-feature` has created the issue tree. Each invocation handles one sub-issue.
@@ -59,7 +68,7 @@ Use `mcp__plugin_linear_linear__save_issue` with `stateId` for the team's "In Pr
 
 Use the `Agent` tool. Subagent type: `general-purpose` (broadest tool access). Use the session's default model — don't pin a version.
 
-Prompt structure (compose with full context — the subagent has no conversation history):
+Prompt structure (compose with full context — the subagent has no conversation history). Keep the fixed framing (the "Read /CLAUDE.md + spec" instruction and the task checklist) ahead of the volatile per-issue text so repeated dispatches share a cache prefix — see *Token discipline*. Note the heavy shared content (CLAUDE.md, the spec) is *read by the subagent*, not pasted in, so the prompt itself stays small:
 
 ```
 You are implementing one sub-issue of a feature for [project-name from CLAUDE.md].
@@ -99,20 +108,49 @@ DO NOT commit. DO NOT push. DO NOT create a PR. Stop after evidence is gathered.
 If you cannot complete the task (missing dependency, ambiguous requirement, contradicts existing code), STOP and report what you found. Do not invent or skip steps.
 ```
 
-### Step 5 — Verify the evidence
+### Step 5 — Verify the evidence (delegated)
 
-Before invoking the reviewer, double-check what the coding agent reported:
+The coder's report can't be trusted at face value — but reading the raw diff, opening every screenshot, and re-running `tsc` **in your own context** drags all of that bulk into the loop you re-read every turn. Delegate it. Dispatch a **verification subagent** whose throwaway context does the heavy reading and hands you back a compact verdict.
 
-- Read each evidence artifact path it cited — confirm the files exist.
-- Run `git diff` and review the actual changes — they must match what the agent claimed to change.
-- Run `npx tsc --noEmit` yourself once more. If it errors, do not proceed.
-- **Sweep stray evidence files.** Run `git status --short` and check for any new files at the repo root (or outside `.playwright-mcp/`) that are clearly evidence artifacts — coding subagents sometimes write `*-evidence.json` / `*.png` to cwd despite instructions. Move them into `.playwright-mcp/` (`mv <file> .playwright-mcp/`) so the working tree stays clean and they don't get committed. Only the actual source changes should remain staged for the sub-PR.
+Use the `Agent` tool. Subagent type: `general-purpose`. **Pass `model: "sonnet"`** — verification is mechanical and a different model from the coder catches different fabrications. Compose the prompt stable-prefix-first (fixed instructions, then the coder's claims last):
 
-If anything is missing or fabricated, treat it as a retry (go to Step 7 with a coder retry, not a reviewer round).
+```
+You are an evidence-verification agent. The implementer is not trusted — confirm its claims against reality and report discrepancies. You do not fix anything.
+
+=== What to check ===
+1. Run `git diff feature/<slug>...HEAD` — read the actual changes.
+2. Run `npx tsc --noEmit` (or the project's type-check from /CLAUDE.md) — capture the exit code.
+3. For every evidence artifact path the implementer cited: confirm it exists and size > 0 (`ls -l`). For screenshots (.png), Read the image and actually look at it.
+4. **Visual jank is a defect** (for UI work). Looking at each screenshot, flag misalignment, overflow, clipped/over-wrapped text, labels colliding at the right edge, cramped spacing, or a chart caught mid-animation (bars/lines absent). A green assertion is not a passing render — judge the pixels.
+5. Stray files: run `git status --short`; list any NEW files outside `.playwright-mcp/` that look like evidence artifacts (`*-evidence.json`, `*.png`) written to cwd by mistake.
+
+=== Coder's claims (verify each) ===
+Files changed: <paths the coder reported>
+Evidence artifacts: <paths the coder reported>
+Acceptance criteria / test steps for this sub-issue:
+<full description body>
+
+=== Return EXACTLY this, nothing bulky ===
+DIFF_MATCHES_CLAIMS: yes|no  (+ one line per discrepancy: claimed X, diff shows Y)
+TSC: <exit code> (+ first error line if nonzero)
+ARTIFACTS: all_present | missing: <paths>
+VISUAL_JANK: none | <one line per jank issue, with the screenshot path>
+STRAY_FILES: none | <paths to move into .playwright-mcp/>
+VERDICT: PASS (claims hold, tsc clean, artifacts present, no jank) | FAIL (+ the blocking reasons)
+Do NOT paste the diff, file contents, or screenshots back. Return only the lines above.
+```
+
+Act on the returned contract — do **not** re-read the artifacts yourself:
+
+- **`VERDICT: FAIL`** (claims don't match, tsc errors, artifacts missing/fabricated, or jank) → treat as a retry: go to Step 7 with a coder retry (not a reviewer round), passing the verifier's FAIL reasons verbatim.
+- **`STRAY_FILES`** listed → move them yourself with `mv <file> .playwright-mcp/` (a trivial action that keeps the working tree clean for the sub-PR). This is the one mutation you do inline; everything else stayed in the subagent.
+- **`VERDICT: PASS`** → proceed to Step 6. Keep only the one-line verdict in your context, not the verifier's full output.
 
 ### Step 6 — Dispatch the adversarial reviewer(s)
 
 Two review axes run as **separate subagents**: a correctness reviewer (always) and a spec-compliance reviewer (when the diff touches user-facing surfaces). Both must clear before Step 7's APPROVE.
+
+**Context discipline (see Token discipline above):** the reviewers read `CLAUDE.md` + the spec *inside their own context* — don't paste those into the prompt; just instruct them to read the paths, with the fixed framing first and the per-issue scope/diff last. When they return, consolidate their findings into one compact verdict for your running state; the full APPROVE checklist goes into the **PR body** (Step 8), which is its durable home — you don't carry the verbatim reviewer transcript forward.
 
 **Dispatch them CONCURRENTLY when both apply** — put both `Agent` calls in a *single message* so they run in parallel. They're independent and you block on both before deciding the verdict, so sequential dispatch just doubles the wall-clock for no benefit. (Only the correctness reviewer runs for purely backend diffs.) Wait for both, then consolidate their findings into one verdict and, if retrying, one combined coder retry.
 
@@ -252,7 +290,11 @@ Triggered when the user asks to run the whole feature unattended (e.g. `/work-it
 - Merging **sub-PRs into the feature branch** is allowed autonomously; merging anything into `main` is not.
 - The dual-review separation and all evidence gates still apply to every issue — autonomy lowers the *interaction* bar, never the *verification* bar.
 
-**Progress + report:** keep a running log (sub-issue → APPROVE/retries/PR URL). Linear `Done` state is the durable record. On halt or completion, post one consolidated report: issues completed (with PR URLs + each reviewer's APPROVE checklist), where it stopped and exactly why, retries used, and the single next action for the human (usually: review the merged feature branch, run the prod migration, then open the umbrella PR).
+**Progress + report:** keep a running log, **one compact line per sub-issue** (`<id> ✓ APPROVE · 1 retry · PR #123 · ~Nk tok`) — not the verbatim coder/reviewer transcripts. This is both the cost-visibility record and the context-discipline rule: the autonomous loop stays affordable only if each finished issue collapses to a line in your context (its durable detail is in Linear + the PR body). Linear `Done` state is the durable record.
+
+**Cost visibility (you're optimizing spend, so surface it):** after each sub-issue, note its approximate token spend in the running line. The signal you want is a *runaway* — a sub-issue that burns far more than its peers (usually retry thrash or a verifier/coder re-reading something huge). If one issue's spend is an outlier, say so in the report; it's the early warning that catches a $100 feature mid-flight instead of at the bill.
+
+On halt or completion, post one consolidated morning report: issues completed (with PR URLs + each reviewer's APPROVE checklist — pulled from the PR bodies, not re-derived), **a per-feature token/cost total and any outlier issue flagged**, where it stopped and exactly why, retries used, and the single next action for the human (usually: review the merged feature branch, run the prod migration, then open the umbrella PR).
 
 ## Things to never do
 
@@ -268,25 +310,25 @@ Triggered when the user asks to run the whole feature unattended (e.g. `/work-it
 
 ## Evidence gates — minimum bar
 
-A sub-issue cannot pass to commit unless ALL of these are present in the conversation:
+A sub-issue cannot pass to commit unless ALL of these are confirmed — gates 1–4 by the Step 5 verifier's returned contract (`DIFF_MATCHES_CLAIMS` / `TSC` / `ARTIFACTS` / `VISUAL_JANK`), gate 5 by the reviewer. The evidence is produced by the coder and *verified in a subagent*; it does not need to sit raw in your own context — the verifier's `VERDICT: PASS` is your proof.
 
-1. Git diff visible (run `git diff feature/<slug>...HEAD` and confirm output looks right)
-2. `npx tsc --noEmit` (or project equivalent) — exit 0, output captured
-3. Dev server boot check — confirmed via a browser navigation to the dev URL (Playwright/Chrome DevTools), NOT curl. The page must load without console errors that didn't exist before.
+1. Git diff reviewed against the coder's claims (`git diff feature/<slug>...HEAD`) — verifier reports `DIFF_MATCHES_CLAIMS: yes`
+2. `npx tsc --noEmit` (or project equivalent) — verifier reports `TSC: 0`
+3. Dev server boot check — confirmed by the coder via a browser navigation to the dev URL (Playwright/Chrome DevTools), NOT curl. The page must load without console errors that didn't exist before; the verifier confirms the captured evidence.
 4. **Browser-driven verification of the change** (hard block — no exceptions):
-   - For UI: at least one screenshot in `.playwright-mcp/` with size > 0 showing the new behavior in a real browser
-   - For API: at least one network request captured via `browser_network_requests` / `list_network_requests`, OR a browser-evaluated `fetch()` result in the conversation
+   - For UI: at least one screenshot in `.playwright-mcp/` with size > 0 showing the new behavior in a real browser, and the verifier reports `VISUAL_JANK: none`
+   - For API: at least one network request captured via `browser_network_requests` / `list_network_requests`, OR a browser-evaluated `fetch()` result, cited as an artifact the verifier confirms
    - `curl`/`wget` output does NOT satisfy this gate, even if the response looks correct
-5. Reviewer APPROVE block with ≥5 specific checks
+5. Reviewer APPROVE block with ≥5 specific checks (consolidated into your verdict; the full block lands in the PR body)
 
-If any is missing, you cannot proceed to Step 8.
+If any is missing or the verifier returns `VERDICT: FAIL`, you cannot proceed to Step 8.
 
 ### UI / visual verification — hard-won specifics
 
-These come from real failures; bake them into the coder prompt AND check them yourself when you read the screenshots (the jank check is yours too, not just the reviewer's):
+These come from real failures. Bake them into the coder prompt, and bake the *checking* of them into the **Step 5 verification subagent** — that's the context that opens the screenshots and judges jank, so you get a `VISUAL_JANK` verdict without pulling every image into your own loop. (You only look at a screenshot yourself if the verifier's verdict is ambiguous and you need to break a tie.)
 
 - **Test at the phone viewport, not desktop/tablet** (e.g. 393×852 / a phone `devices[...]` profile). For mobile-first apps the phone is the real surface; defer to the project's CLAUDE.md if it names a size. When the app is iOS-sensitive, also verify on **WebKit (iPhone-emulated)**, not just Chromium.
-- **Visual jank is a blocker, not a nit.** "Not broken but janky" — misalignment, overflow, clipped/over-wrapped text, cramped spacing, labels colliding/clipping at the right edge, jumpy/unsettled charts — fails the gate even when the feature functions. Actually *look* at the screenshot; a green assertion is not a passing render.
+- **Visual jank is a blocker, not a nit.** "Not broken but janky" — misalignment, overflow, clipped/over-wrapped text, cramped spacing, labels colliding/clipping at the right edge, jumpy/unsettled charts — fails the gate even when the feature functions. The Step 5 verifier *looks* at the screenshot and reports jank; a green assertion is not a passing render.
 - **Disable chart/animation for screenshots.** Recharts (and similar) animate from 0; a headless capture catches them mid-animation and bars/lines look absent even though the data is in the DOM. Set `isAnimationActive={false}` (also kills "jumpy chart" jank). If a value is "in the DOM but not painted," suspect animation before suspecting a real bug.
 - **Dynamic colors: no `var(--…)` inside an inline `style`** (a common CLAUDE.md rule). Tailwind JIT only generates classes whose *literal* strings appear in source, so `bg-[${dynamicVar}]` silently produces nothing — use a STATIC class lookup (`Record<Key, "bg-[var(--token-a)]" | ...>`) or a CSS-custom-property pattern. Recharts `fill`/`stroke` as a `var(--…)` SVG *attribute* (not a `style` object) is fine.
 - **Playwright MCP server CWD may be the repo's PARENT**, so screenshot/`fetch`-dump artifacts can land outside the repo (or at the repo root). Always have the coder write under `.playwright-mcp/<issue-id>-*`, then in Step 5 sweep both the repo root AND the parent dir and move strays in. Confirm `git status` shows only source changes.
