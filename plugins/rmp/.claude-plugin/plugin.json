@@ -1,8 +1,8 @@
 {
   "name": "rmp",
   "displayName": "RMP Feature Harness",
-  "description": "Spec-driven feature harness for RMP Software: spec-feature → breakdown-feature → work-iteration → continue-feature, plus a standalone adversarial critique and a generic spec-compliance reviewer. Skills invoke as /rmp:<name>.",
-  "version": "0.2.0",
+  "description": "Spec-driven feature harness for RMP Software: brainstorming → breakdown-feature → work-iteration → continue-feature, plus a standalone adversarial critique and a generic spec-compliance reviewer. Linear-optional (local task tracker), specialized-agent routing, parallel batches. Skills invoke as /rmp:<name>.",
+  "version": "0.4.0",
   "author": {
     "name": "RMP Software"
   },
@@ -18,8 +18,17 @@
     "feature-development"
   ],
   "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
   "agents": [
     "./agents/code-reviewer.md",
-    "./agents/spec-compliance-reviewer.md"
+    "./agents/spec-compliance-reviewer.md",
+    "./agents/principal-engineer.md",
+    "./agents/code-refactor-master.md",
+    "./agents/code-architecture-reviewer.md",
+    "./agents/plan-reviewer.md",
+    "./agents/refactor-planner.md",
+    "./agents/auto-error-resolver.md",
+    "./agents/documentation-architect.md",
+    "./agents/web-research-specialist.md"
   ]
 }
