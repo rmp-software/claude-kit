@@ -3,7 +3,7 @@
 
   PURPOSE
   This file is the canonical, committed contract for ONE application. Humans read it
-  to know what's being built; the /rmp:spec-feature skill matches its voice; and the
+  to know what's being built; the /rmp:brainstorming skill matches its voice; and the
   rmp `spec-compliance-reviewer` agent audits diffs against the <compliance_rules>
   block below. Keep it accurate — a vague spec produces a vague review.
 

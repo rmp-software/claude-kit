@@ -1,18 +1,23 @@
 ---
 name: breakdown-feature
-description: Use after `/spec-feature` to turn a spec file at `docs/specs/<slug>.md` into a parent Linear issue + child sub-issues with test steps in their descriptions. Detects or creates the project's features Linear project. Writes Linear IDs back into the spec's frontmatter.
+description: Use after `/rmp:brainstorming` to turn a design doc at `docs/specs/<slug>.md` into a breakdown of tasks with test steps — either as a parent Linear issue + child sub-issues (Linear mode) or as a `## Tasks` checklist in the spec (local mode, no tracker needed). Asks which up front and writes the choice to the spec frontmatter.
 user-invocable: true
 ---
 
-You take a feature spec and turn it into a structured Linear breakdown: one **parent issue** representing the whole feature, and N **child sub-issues** for each discrete deliverable. Sub-issues get test steps baked into their descriptions so `/work-iteration` can verify against them.
+You take a feature spec and turn it into a structured breakdown: one **parent** representing the whole feature, and N **tasks** for each discrete deliverable, each with test steps baked in so `/work-iteration` can verify against them.
 
-Generic across projects — don't hardcode team names or project names. Read context from the spec, `CLAUDE.md`, and Linear.
+**Linear is optional.** The breakdown lives in one of two trackers, chosen per feature:
+
+- **Linear mode** — a parent Linear issue + child sub-issues. Durable, linkable, multi-person. Needs a Linear MCP + `.linear_features.json`.
+- **Local mode** — a `## Tasks` checklist appended to the spec file (`docs/specs/<slug>.md`). Zero extra dependencies; ideal for simpler/solo features where Linear is overhead. State lives in the checkboxes.
+
+Generic across projects — don't hardcode team names or project names. Read context from the spec, `CLAUDE.md`, and (in Linear mode) Linear.
 
 ## Read first
 
 1. The spec at `docs/specs/<slug>.md` (user may pass the slug as an argument; if not, list specs and ask)
-2. `.linear_features.json` at repo root (project-wide Linear config — see Schema below). If missing, set it up before continuing.
-3. `/CLAUDE.md` for any team conventions
+2. `/CLAUDE.md` for any team conventions
+3. In **Linear mode only**: `.linear_features.json` at repo root (project-wide Linear config — see Schema below). If missing, set it up before continuing.
 
 ## `.linear_features.json` schema
 
@@ -33,9 +38,19 @@ This file holds project-wide Linear context (NOT per-feature). Per-feature state
 
 If user invoked `/breakdown-feature <slug>`, read `docs/specs/<slug>.md`. Otherwise list files in `docs/specs/`, ask which one.
 
-Read the spec. If status frontmatter is anything other than `draft` or unset, warn the user and ask whether to proceed (issues may already exist).
+Read the spec. If status frontmatter is anything other than `draft` or unset, warn the user and ask whether to proceed (a breakdown may already exist).
 
-### 2. Ensure Linear project exists
+### 2. Choose the tracker
+
+If the spec frontmatter already has `tracker:` set, use that (the user already chose; don't re-ask). Otherwise ask once with `AskUserQuestion`:
+
+> "Track this feature in **Linear** (parent + sub-issues) or **locally** (a `## Tasks` checklist in the spec)? Local needs no Linear setup — good for simpler/solo features."
+
+Default suggestion: **Linear** if `.linear_features.json` exists at the repo root, otherwise **local**. Write the choice to the spec frontmatter (`tracker: linear` or `tracker: local`) immediately, so `/work-iteration` and `/continue-feature` follow the same mode without re-asking.
+
+The drafting (Step 3) and the user-review (Step 4) are identical in both modes — only the materialization (Step 5) differs.
+
+### 3. Ensure Linear project exists — **Linear mode only** (skip in local mode)
 
 Read `.linear_features.json`. If missing or incomplete:
 
@@ -49,74 +64,92 @@ d. If they approve, create with `mcp__plugin_linear_linear__save_project`. Captu
 
 e. Write `.linear_features.json` with the captured fields.
 
-### 3. Draft the issue tree
+### 4. Draft the breakdown (both modes)
 
-The spec body is XML-tagged (`<feature_specification>` with `<overview>`, `<surfaces_affected>`, `<acceptance_criteria>`, etc.) — read the tags below, not markdown `##` headings.
+The spec is a free-form brainstorming design doc: rmp YAML frontmatter followed by markdown sections (headings, prose, lists — whatever the design dialogue produced). There is no fixed XML schema; read the markdown by meaning, not by tag. The one section you can rely on is **Acceptance criteria** (`/rmp:brainstorming` requires it) — find that heading and use its checkboxes verbatim.
 
-**Parent issue:**
-- Title: the spec's `<feature_name>` (e.g. "Photo Capture v2")
-- Description: a 3–5 line summary + link to the spec file (`docs/specs/<slug>.md`) + the `<acceptance_criteria>` list copied verbatim from the spec
-- Labels: `feature` if the team has one (check via `list_issue_labels`)
-- Priority: ask user or default to Medium
+**The feature parent:**
+- Title: the feature name (the doc's H1/title, or derive from the slug)
+- Summary: 3–5 lines + the Acceptance criteria list copied verbatim from the spec. (In Linear mode this becomes the parent issue's description; in local mode the spec file *is* the parent record, so you don't restate it.)
 
-**Child sub-issues** — one per discrete deliverable. Sources, in order of preference:
+**The tasks** — one per discrete deliverable. Sources, in order of preference:
 
-1. If the spec's `<breakdown_sketch>` has content, use those bullets as the starting list.
-2. Otherwise, draft from whichever of `<surfaces_affected>` / `<data_model>` / `<api_surface>` / `<ui_copy>` are present — one issue per natural unit of work. (A backend-only feature legitimately has no `<ui_copy>`; a frontend-only one has no `<api_surface>`. Don't treat an absent section as missing work — but if *all* of these are empty and there's no `<breakdown_sketch>`, stop and tell the user the spec is too thin to break down.)
+1. If the design doc has an explicit breakdown / tasks / milestones / components section, use those items as the starting list.
+2. Otherwise, infer the natural units of work from the design — one task per component, surface, endpoint, migration, or phase the design describes. Group by what can be built and verified independently.
 
-Each child issue's description MUST contain:
-- A one-line summary
-- A `## Acceptance criteria` block (markdown — Linear descriptions are markdown) — pull the relevant rows from the spec's `<acceptance_criteria>`
-- A `## Test steps` block — concrete steps that prove the issue is done (e.g. "1. Run `npx tsc --noEmit` — exits 0. 2. Visit `/judges`, click 'Add', fill form, submit — judge appears in list.")
+If the design is too thin to yield any concrete deliverables, stop and tell the user — suggest they flesh out the spec (re-run `/rmp:brainstorming`) before breaking it down.
 
-Aim for sub-issues that are 2–8 hours of work each. Ones bigger than that should be split; ones smaller can be combined.
+Each task MUST carry:
+- A one-line summary (its title)
+- Its **acceptance criteria** — pull the relevant rows from the spec's Acceptance criteria section
+- Its **test steps** — concrete steps that prove the task is done (e.g. "1. Run `npx tsc --noEmit` — exits 0. 2. Visit `/judges`, click 'Add', fill form, submit — judge appears in list.")
 
-### 4. Review with the user
+Aim for tasks that are 2–8 hours of work each. Ones bigger than that should be split; ones smaller can be combined.
 
-Show the proposed parent + sub-issue list as a numbered markdown list. **Stop and wait for approval.** Offer to:
-- Edit a specific issue's title / description
-- Add an issue
-- Remove an issue
+### 5. Review with the user (both modes)
+
+Show the proposed parent + task list as a numbered markdown list. **Stop and wait for approval.** Offer to:
+- Edit a specific task's title / acceptance criteria / test steps
+- Add a task
+- Remove a task
 - Reorder
 - Merge two
 
-Loop until user says "create them" or equivalent.
+Loop until the user says "create them" / "looks good" or equivalent.
 
-### 5. Create in Linear
+### 6. Materialize the breakdown
 
-Order: parent first, capture its ID, then children with `parentId` set to the parent's ID.
+**6a — Linear mode.** Create issues: parent first, capture its ID, then children with `parentId` set to the parent's ID.
 
 Use `mcp__plugin_linear_linear__save_issue` for each. Required fields:
 - `teamId` (from `.linear_features.json`)
 - `projectId` (from `.linear_features.json`)
 - `title`
-- `description` (markdown)
+- `description` (markdown — include the `## Acceptance criteria` and `## Test steps` blocks)
 - For children: `parentId`
 
 Capture all returned identifiers (`identifier` like "RMP-99" and `id` UUID).
 
-### 6. Update spec frontmatter
+**6b — Local mode.** Append a `## Tasks` section to the spec file (`docs/specs/<slug>.md`) — this is the durable task record; there is no Linear. Use this exact shape so `/work-iteration` and `/continue-feature` can parse and update it:
 
-Edit the spec file's YAML frontmatter to fill in:
-```yaml
-status: planned
-linear_project_id: <features_project_id>
-linear_parent_issue: <parent identifier, e.g. RMP-99>
-feature_branch: feature/<slug>
+```markdown
+## Tasks
+
+- [ ] <Task title>
+  - AC: <acceptance criterion(s) for this task>
+  - Test: <test step(s) that prove it's done>
+- [ ] <Task title>
+  - AC: …
+  - Test: …
 ```
 
-### 7. Report
+Checkbox states are the contract: `[ ]` todo, `[~]` in progress, `[x]` done. `/work-iteration` flips them and appends the merge/commit ref to a done line (e.g. `- [x] Schema + types — PR #41`). Order the list in dependency order (foundation tasks first, whole-app gate last) — `/work-iteration` walks it top-to-bottom.
+
+### 7. Update spec frontmatter (both modes)
+
+Edit the spec file's YAML frontmatter:
+```yaml
+status: planned
+tracker: <linear | local>   # the choice from Step 2
+feature_branch: feature/<slug>
+# Linear mode only:
+linear_project_id: <features_project_id>
+linear_parent_issue: <parent identifier, e.g. RMP-99>
+```
+In local mode leave `linear_project_id` / `linear_parent_issue` empty.
+
+### 8. Report
 
 Tell the user:
-- Parent issue link/identifier
-- Number of sub-issues created (and their identifiers as a bulleted list)
-- Spec frontmatter updated
-- Next step: `/work-iteration <slug>` to start the first sub-issue, OR commit the spec change first
+- **Linear mode:** parent issue link/identifier + the sub-issue identifiers (bulleted)
+- **Local mode:** the count of tasks written to the spec's `## Tasks` section
+- Spec frontmatter updated (`tracker`, `status: planned`, `feature_branch`)
+- Next step: `/work-iteration <slug>` to start the first task, OR commit the spec change first
 
 ## Constraints
 
-- **Never create issues without explicit user approval of the list.** No "I'll just create them and let you adjust."
-- **Don't lose work** if Linear MCP fails mid-create. If a child creation errors, surface it; offer to retry. Don't leave the spec frontmatter half-updated.
-- **Don't create duplicates.** If the spec frontmatter already has `linear_parent_issue` set, warn before re-running and offer to skip / update existing / create new with a `(v2)` suffix.
-- **Don't add nested sub-sub-issues.** This skill creates exactly two levels: parent + children.
+- **Never materialize without explicit user approval of the list** (Step 5). No "I'll just create them and let you adjust." Applies to both Linear issues and the local `## Tasks` write.
+- **Don't lose work** if Linear MCP fails mid-create (Linear mode). If a child creation errors, surface it; offer to retry. Don't leave the spec frontmatter half-updated.
+- **Don't create duplicates.** Before re-running, check for an existing breakdown: in Linear mode a set `linear_parent_issue`; in local mode an existing `## Tasks` section. If found, warn and offer to skip / update existing / start fresh.
+- **Don't add nested sub-sub-issues.** Exactly two levels: parent + tasks. (Local mode: a flat checklist; sub-bullets are AC/Test, not nested tasks.)
 - **Test steps must be runnable.** Each test step is a command, a UI click sequence, or an assertion that something appears. No vague "verify it works."

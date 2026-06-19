@@ -39,9 +39,11 @@ Ask the user (or pick a default based on the diff):
 
 - **General critique** (default) — `rmp:code-reviewer` (bundled with this plugin), broad bug-hunting
 - **Spec compliance** — `rmp:spec-compliance-reviewer`, for user-facing diffs (copy/design/tokens against the app's `app_spec.txt`)
+- **Architecture** — `rmp:code-architecture-reviewer`, for structural changes (new boundaries/abstractions, module/package fit, system integration)
+- **First-principles deep-dive** — `rmp:principal-engineer`, for a tricky algorithm/design where you want assumptions challenged and alternatives weighed, not just bug-hunting
 - **Silent-failure focus** *(optional, needs `pr-review-toolkit`)* — `pr-review-toolkit:silent-failure-hunter`, for changes touching error handling, try/catch, fallbacks, retries
 - **Type design** *(optional, needs `pr-review-toolkit`)* — `pr-review-toolkit:type-design-analyzer`, for new types or major type refactors
-- **Two in parallel** — run general + one of the above concurrently; merge findings
+- **Several in parallel** — run general + one or more of the above concurrently (all `Agent` calls in one message); merge findings. Never `general-purpose` — pick a specialized flavor.
 
 ### Step 3 — Dispatch with Sonnet override
 
