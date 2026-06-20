@@ -1,0 +1,21 @@
+{
+  "name": "file-standard",
+  "displayName": "Agent File-Placement Standard",
+  "description": "A company-wide standard for where Claude-generated files live. A SessionStart hook injects the placement rules into every session and keeps the machine's global gitignore covering in-repo scratch; a non-blocking PreToolUse hook warns when scratch/evidence/handoff files are written outside the sanctioned location. Keeps git trees clean by construction.",
+  "version": "0.1.0",
+  "author": {
+    "name": "RMP Software"
+  },
+  "homepage": "https://github.com/rmp-software/claude-kit/tree/main/plugins/file-standard",
+  "repository": "https://github.com/rmp-software/claude-kit",
+  "license": "MIT",
+  "keywords": [
+    "hooks",
+    "convention",
+    "file-organization",
+    "gitignore",
+    "scratch",
+    "artifacts"
+  ],
+  "hooks": "./hooks/hooks.json"
+}

@@ -16,6 +16,16 @@
         "name": "RMP Software"
       },
       "homepage": "https://github.com/rmp-software/claude-kit/tree/main/plugins/rmp"
+    },
+    {
+      "name": "file-standard",
+      "description": "Company-wide standard for where Claude-generated files live. A SessionStart hook injects the placement rules into every session and keeps the machine's global gitignore covering in-repo scratch; a non-blocking PreToolUse hook warns when scratch/evidence/handoff files are written outside .claude/scratch/. Keeps git trees clean by construction.",
+      "source": "./plugins/file-standard",
+      "category": "workflow",
+      "author": {
+        "name": "RMP Software"
+      },
+      "homepage": "https://github.com/rmp-software/claude-kit/tree/main/plugins/file-standard"
     }
   ]
 }
