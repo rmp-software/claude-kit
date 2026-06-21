@@ -48,9 +48,14 @@ COLOR_VAR_RE = re.compile(r"\[color:var\(--[^)]+\)\]")
 
 # --- Pattern 2: token var() in a color-ish bracket utility -------------------
 # Tight prefix list so size/position bridges (left-, top-, h-, w-, max-w-,
-# translate-, inset-, basis-, flex-, gap-, text-[length:…]) are NOT flagged.
+# translate-, inset-, basis-, flex-, gap-) are NOT flagged.
+# `text` is intentionally OMITTED: a bare `text-[var(--x)]` is ambiguous — it may
+# be a font-SIZE bridge (the typed form is `text-[length:var(--size)]`), not a
+# colour. The unambiguous colour case `text-[color:var(--…)]` is still caught by
+# COLOR_VAR_RE (pattern 1); flagging bare `text-[var(--…)]` would false-positive
+# on size bridges (favour false negatives).
 COLORISH_PREFIXES = (
-    "bg", "text", "border", "fill", "stroke", "ring", "shadow",
+    "bg", "border", "fill", "stroke", "ring", "shadow",
     "from", "via", "to", "decoration", "outline", "caret", "accent",
     "divide", "placeholder",
 )
@@ -110,8 +115,12 @@ def _alias_ui_segment(alias):
     remainder wrapped in slashes for a containment test, e.g.
       `@/components/ui`  -> `/components/ui/`
       `~/components/ui`  -> `/components/ui/`
-      `@org/ui`          -> `/ui/`
-    Returns "" when nothing usable remains (don't match on an empty segment).
+      `@org/ui`          -> ``  (single word — too broad; see below)
+    Returns "" when nothing usable remains, OR when the remainder is a single
+    path component (e.g. `ui`). A bare `/ui/` containment test would exempt EVERY
+    file under any directory named `ui/` (app code included), silencing real
+    radix violations — so we require a discriminating segment (>= 2 components)
+    and let the fallback segment list handle bare-package layouts.
     """
     if not isinstance(alias, str) or not alias.strip():
         return ""
@@ -119,7 +128,7 @@ def _alias_ui_segment(alias):
     # Strip a leading alias prefix: `@/`, `~/`, or `@<word>/`.
     a = re.sub(r"^(?:@/|~/|@[\w.-]+/)", "", a)
     a = a.strip("/")
-    if not a:
+    if "/" not in a:  # empty or single component -> not discriminating enough
         return ""
     return "/" + a + "/"
 
@@ -274,7 +283,10 @@ def main():
     tool_input = data.get("tool_input", {}) or {}
 
     file_path = tool_input.get("file_path") or ""
-    if not file_path.lower().endswith(SOURCE_EXT) and not file_path.lower().endswith(".css"):
+    # Only JSX/TS source — NOT `.css`. The className-arbitrary rules don't apply to
+    # CSS syntax, and `.css` is the token DEFINITION layer where `var(--…)` (in
+    # `@apply`/values) and raw hex are legitimate; linting it false-positives.
+    if not file_path.lower().endswith(SOURCE_EXT):
         return
     abs_path = file_path if os.path.isabs(file_path) else os.path.join(
         data.get("cwd") or os.getcwd(), file_path

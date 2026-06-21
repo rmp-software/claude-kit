@@ -54,7 +54,7 @@ belong ONLY in the token CSS source files (the definition layer). Everywhere
 else, colour comes from a token utility.
 
 ```tsx
-<div className="bg-espresso-800" />          // ✅
+<div className="bg-brand-800" />             // ✅ your @theme's token name
 <div className="bg-[#1a1a1a]" />             // ❌ raw hex in a className
 ```
 
@@ -187,9 +187,14 @@ import { Button } from "@/components/ui/button";
 
 ## Compliance checklist
 
-Grep-able banned patterns (the canonical ruleset for both the lint backstop and
-the spec-compliance reviewer). Each is a violation **unless** the documented
-exception applies.
+Grep-able banned patterns — the canonical ruleset for the spec-compliance
+reviewer (and a human). Each is a violation **unless** the documented exception
+applies. NOTE: the write-time PreToolUse lint backstop enforces only the
+high-signal, low-false-positive subset — `[color:var(--…)]` / colour-ish bracket
+`var()`, raw hex in a className, and a direct `radix`/`@radix-ui` import outside
+the primitives dir. The inline-`style` / `setInterval` / `@keyframes` rules below
+are reviewer/human checks, NOT enforced by the hook (they're too context-
+dependent to auto-flag without noise).
 
 ### Always (Tailwind core)
 
