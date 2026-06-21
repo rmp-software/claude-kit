@@ -1,0 +1,23 @@
+{
+  "name": "tailwind-shadcn-standard",
+  "displayName": "Tailwind v4 + shadcn Styling Standard",
+  "description": "RMP's Tailwind v4 + shadcn + design-token styling standard, made to travel with the tooling instead of being re-authored in each repo's CLAUDE.md / app_spec.txt. A SessionStart hook injects a short pointer when it detects the stack (and stays silent otherwise); an on-demand skill holds the full guide; a non-blocking PreToolUse hook warns on banned styling patterns at write time.",
+  "version": "0.1.0",
+  "author": {
+    "name": "RMP Software"
+  },
+  "homepage": "https://github.com/rmp-software/claude-kit/tree/main/plugins/tailwind-shadcn-standard",
+  "repository": "https://github.com/rmp-software/claude-kit",
+  "license": "MIT",
+  "keywords": [
+    "hooks",
+    "convention",
+    "tailwind",
+    "tailwindcss",
+    "shadcn",
+    "design-tokens",
+    "styling"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}
