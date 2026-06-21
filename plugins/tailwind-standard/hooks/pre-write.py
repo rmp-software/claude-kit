@@ -1,0 +1,323 @@
+#!/usr/bin/env python3
+"""PreToolUse backstop for the tailwind-standard plugin.
+
+Non-blocking write-time lint. When a Write/Edit/MultiEdit targets a UI-ish file
+and the incoming text contains a banned styling pattern, emit an advisory
+warning naming the file, the offending snippet, and the correct alternative. The
+write always proceeds — this is a nudge, not a gate.
+
+Matchers are deliberately TIGHT (favour false negatives over false positives,
+like file-standard). We flag only high-signal violations:
+  1. `[color:var(--…)]` arbitrary utilities (the clearest violation).
+  2. a design-token `var(--…)` inside a bracket utility on a color/bg/border/
+     fill/stroke/ring/shadow prefix (so positional/size runtime bridges like
+     `left-[var(--puck-x)]` / `h-[var(--pad-h)]` do NOT trip it).
+  3. a raw hex colour inside a `className` / `class=` string.
+  4. app/feature code importing `radix-ui` / `@radix-ui/*` DIRECTLY from a file
+     that is NOT a shadcn primitives file (advisory). The primitives dir is
+     DETECTED per-repo (a `components.json` `aliases.ui` segment, plus common
+     fallback segments), so this works for a plain single-app shadcn layout
+     (`@/components/ui`) and any turborepo UI-package layout alike — not just one
+     hardcoded path. SHADCN-GATED: this check fires ONLY when the file's repo
+     actually uses shadcn. A Tailwind-only (no-shadcn) repo may use radix
+     legitimately, so if detection is negative or ambiguous we favour the
+     false-negative and skip it.
+
+Checks 1–3 are Tailwind core and always fire. Never raises; on any error it
+stays silent and lets the tool run.
+"""
+
+import functools
+import json
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _detect import detect_stack
+
+# --- File scoping -------------------------------------------------------------
+# Only lint files where these patterns are meaningful. .tsx/.jsx are the core;
+# .css/.ts are handled conservatively (only the hex-in-class check is risky
+# there, so we keep the className checks scoped to JSX-bearing extensions).
+JSX_EXT = (".tsx", ".jsx")
+SOURCE_EXT = (".tsx", ".jsx", ".ts", ".mts", ".cts")
+
+# --- Pattern 1: [color:var(--…)] arbitrary utility ---------------------------
+COLOR_VAR_RE = re.compile(r"\[color:var\(--[^)]+\)\]")
+
+# --- Pattern 2: token var() in a color-ish bracket utility -------------------
+# Tight prefix list so size/position bridges (left-, top-, h-, w-, max-w-,
+# translate-, inset-, basis-, flex-, gap-) are NOT flagged.
+# `text` is intentionally OMITTED: a bare `text-[var(--x)]` is ambiguous — it may
+# be a font-SIZE bridge (the typed form is `text-[length:var(--size)]`), not a
+# colour. The unambiguous colour case `text-[color:var(--…)]` is still caught by
+# COLOR_VAR_RE (pattern 1); flagging bare `text-[var(--…)]` would false-positive
+# on size bridges (favour false negatives).
+COLORISH_PREFIXES = (
+    "bg", "border", "fill", "stroke", "ring", "shadow",
+    "from", "via", "to", "decoration", "outline", "caret", "accent",
+    "divide", "placeholder",
+)
+COLORISH_VAR_RE = re.compile(
+    r"\b(?:" + "|".join(COLORISH_PREFIXES) + r")-\[var\(--[^)]+\)\]"
+)
+
+# --- Pattern 3: raw hex inside a className / class= string --------------------
+# Find a className/class attribute value, then look for a hex literal in it.
+CLASS_ATTR_RE = re.compile(
+    r"""class(?:Name)?\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\})"""
+)
+HEX_RE = re.compile(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?:[0-9a-fA-F]{2})?\b")
+
+# --- Pattern 4: direct radix import outside the primitives dir ---------------
+# Only a DIRECT radix import is a violation. Importing your own shadcn primitives
+# (`@/components/ui/button`, `@org/ui/button`) is CORRECT, not a violation.
+RADIX_IMPORT_RE = re.compile(
+    r"""(?:import|from)\s+['"](?:radix-ui|@radix-ui/[^'"]+)['"]"""
+)
+
+# Fallback primitive-dir path segments. A file whose normalized path contains any
+# of these is treated as a primitives file (where wrapping radix is legitimate),
+# even without a components.json. Covers the plain single-app shadcn layout
+# (`components/ui`), crivelo's monorepo (`ui/src/ui`), and common turborepo
+# UI-package layouts.
+PRIMITIVE_DIR_SEGMENTS = (
+    "/components/ui/",
+    "/ui/src/ui/",
+    "/src/components/ui/",
+    "/packages/ui/src/",
+    "/packages/ui/components/",
+)
+
+# Bounded walk-up budget when searching for a components.json (mirrors _detect's
+# monorepo_root idiom: cap the levels, never walk the whole filesystem).
+_COMPONENTS_JSON_MAX_LEVELS = 8
+
+
+@functools.lru_cache(maxsize=None)
+def repo_uses_shadcn(scan_dir):
+    """Whether the repo containing `scan_dir` uses shadcn. lru_cache'd on the
+    resolved dir so repeated edits in one invocation don't rescan. On detection
+    failure/ambiguity this is False (favour the false-negative on the radix check).
+    """
+    try:
+        _, shadcn = detect_stack(scan_dir)
+        return shadcn
+    except Exception:
+        return False
+
+
+def _alias_ui_segment(alias):
+    """Turn a shadcn `aliases.ui` value into the trailing path segment(s).
+
+    Strips a leading alias prefix (`@/`, `~/`, or `@<word>/`) and returns the
+    remainder wrapped in slashes for a containment test, e.g.
+      `@/components/ui`  -> `/components/ui/`
+      `~/components/ui`  -> `/components/ui/`
+      `@org/ui`          -> ``  (single word — too broad; see below)
+    Returns "" when nothing usable remains, OR when the remainder is a single
+    path component (e.g. `ui`). A bare `/ui/` containment test would exempt EVERY
+    file under any directory named `ui/` (app code included), silencing real
+    radix violations — so we require a discriminating segment (>= 2 components)
+    and let the fallback segment list handle bare-package layouts.
+    """
+    if not isinstance(alias, str) or not alias.strip():
+        return ""
+    a = alias.strip().replace("\\", "/")
+    # Strip a leading alias prefix: `@/`, `~/`, or `@<word>/`.
+    a = re.sub(r"^(?:@/|~/|@[\w.-]+/)", "", a)
+    a = a.strip("/")
+    if "/" not in a:  # empty or single component -> not discriminating enough
+        return ""
+    return "/" + a + "/"
+
+
+@functools.lru_cache(maxsize=None)
+def _components_json_segment(start_dir):
+    """Walk up from `start_dir` (bounded) for a `components.json`; return its
+    `aliases.ui` trailing segment (e.g. `/components/ui/`), or "" if none/parse
+    error. Cached by start dir. Never raises."""
+    try:
+        d = os.path.abspath(start_dir)
+        for _ in range(_COMPONENTS_JSON_MAX_LEVELS):
+            cj = os.path.join(d, "components.json")
+            if os.path.isfile(cj):
+                try:
+                    with open(cj, "r", encoding="utf-8", errors="ignore") as fh:
+                        cfg = json.load(fh)
+                    alias = ((cfg or {}).get("aliases") or {}).get("ui")
+                    return _alias_ui_segment(alias)
+                except Exception:
+                    # Found the config but couldn't parse it — fall back to the
+                    # static segments (handled by the caller); no alias segment.
+                    return ""
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+    except Exception:
+        pass
+    return ""
+
+
+def is_primitives_file(abs_path):
+    """True when `abs_path` is a shadcn PRIMITIVES file — the place where wrapping
+    radix directly is legitimate. Detected per-repo (favour false-negatives, i.e.
+    don't warn, over false-positives):
+
+    - Walk up for a `components.json` and match its `aliases.ui` trailing segment
+      (so a plain app's `@/components/ui` and a monorepo's `@org/ui` both work).
+    - PLUS a set of common fallback segments (`/components/ui/`, `/ui/src/ui/`, …)
+      so layouts without a components.json (or with an unparseable one) still
+      exempt their primitives dir.
+
+    Never raises; on any error it falls through to the fallback segments.
+    """
+    p = abs_path.replace("\\", "/")
+    if any(seg in p for seg in PRIMITIVE_DIR_SEGMENTS):
+        return True
+    seg = _components_json_segment(os.path.dirname(abs_path))
+    return bool(seg) and seg in p
+
+
+def candidate_texts(tool_name, tool_input):
+    """Return the incoming text blob(s) the tool is about to write."""
+    texts = []
+    if tool_name == "Write":
+        c = tool_input.get("content")
+        if isinstance(c, str):
+            texts.append(c)
+    elif tool_name == "Edit":
+        c = tool_input.get("new_string")
+        if isinstance(c, str):
+            texts.append(c)
+    elif tool_name == "MultiEdit":
+        for edit in tool_input.get("edits", []) or []:
+            c = (edit or {}).get("new_string")
+            if isinstance(c, str):
+                texts.append(c)
+    return texts
+
+
+def snippet(text, match_start, match_end, pad=24):
+    lo = max(0, match_start - pad)
+    hi = min(len(text), match_end + pad)
+    s = text[lo:hi].replace("\n", " ").strip()
+    return ("…" if lo > 0 else "") + s + ("…" if hi < len(text) else "")
+
+
+BRIDGE_NOTE = (
+    "If this is a genuine runtime bridge — drag coords, measured/clamp() dims, "
+    "animation offset — this is allowed; ignore."
+)
+
+
+def lint_text(text, abs_path):
+    """Return a list of (snippet, advice) findings for one text blob."""
+    findings = []
+    is_jsx = abs_path.lower().endswith(JSX_EXT)
+
+    # 1. [color:var(--…)] — highest signal, any source file. (Tailwind core.)
+    for m in COLOR_VAR_RE.finditer(text):
+        findings.append((
+            snippet(text, m.start(), m.end()),
+            "A token is a utility, not a var: write `text-fg-3` / `bg-surface` / "
+            "`border-border`, never `text-[color:var(--…)]`. A missing utility is "
+            "a gap to fix in `@theme`. " + BRIDGE_NOTE,
+        ))
+
+    # 2. colour-ish bracket utility consuming a token var(). (Tailwind core.)
+    for m in COLORISH_VAR_RE.finditer(text):
+        # Avoid double-reporting the [color:var(--…)] case (already covered).
+        if "[color:var(" in m.group(0):
+            continue
+        findings.append((
+            snippet(text, m.start(), m.end()),
+            "A design-token `var(--…)` in a colour/bg/border bracket utility — use "
+            "the registered utility (`bg-surface`, `border-border`, `ring-ring`) "
+            "instead. " + BRIDGE_NOTE,
+        ))
+
+    # 3. raw hex inside a className / class= string (JSX/className contexts only).
+    #    (Tailwind core.)
+    if is_jsx:
+        for m in CLASS_ATTR_RE.finditer(text):
+            value = m.group(1) or m.group(2) or m.group(3) or ""
+            if HEX_RE.search(value):
+                findings.append((
+                    snippet(text, m.start(), m.end(), pad=8),
+                    "Raw hex colour inside a className — colours come from `@theme` "
+                    "token utilities (`bg-espresso-800`, `text-fg`), never a hex "
+                    "literal. Hex belongs only in the token CSS source files.",
+                ))
+
+    # 4. direct radix import outside the primitives dir.
+    #    SHADCN-GATED: only meaningful where the repo actually uses shadcn. A
+    #    Tailwind-only repo may import radix directly and legitimately, so we skip
+    #    this check unless shadcn is detected (favour the false-negative). The
+    #    primitives dir is DETECTED (components.json aliases.ui + fallbacks), so
+    #    this is portable across a plain single-app shadcn layout and any monorepo.
+    if abs_path.lower().endswith(SOURCE_EXT) and not is_primitives_file(abs_path):
+        if repo_uses_shadcn(os.path.dirname(abs_path)):
+            for m in RADIX_IMPORT_RE.finditer(text):
+                findings.append((
+                    snippet(text, m.start(), m.end(), pad=8),
+                    "Primitives wrap radix — import the shadcn PRIMITIVE instead of "
+                    "radix directly (`@/components/ui/*`, or a shared UI package in a "
+                    "monorepo). A missing primitive is generated/added to the "
+                    "primitives layer, not imported from radix in app code.",
+                ))
+
+    return findings
+
+
+def main():
+    raw = sys.stdin.read()
+    if not raw.strip():
+        return
+    data = json.loads(raw)
+    tool_name = data.get("tool_name", "")
+    if tool_name not in ("Write", "Edit", "MultiEdit"):
+        return
+    tool_input = data.get("tool_input", {}) or {}
+
+    file_path = tool_input.get("file_path") or ""
+    # Only JSX/TS source — NOT `.css`. The className-arbitrary rules don't apply to
+    # CSS syntax, and `.css` is the token DEFINITION layer where `var(--…)` (in
+    # `@apply`/values) and raw hex are legitimate; linting it false-positives.
+    if not file_path.lower().endswith(SOURCE_EXT):
+        return
+    abs_path = file_path if os.path.isabs(file_path) else os.path.join(
+        data.get("cwd") or os.getcwd(), file_path
+    )
+
+    all_findings = []
+    for text in candidate_texts(tool_name, tool_input):
+        all_findings.extend(lint_text(text, abs_path))
+
+    if not all_findings:
+        return
+
+    lines = [
+        f"- in `{abs_path}` — `{snip}`\n  → {advice}"
+        for (snip, advice) in all_findings
+    ]
+    msg = (
+        "tailwind-standard: the incoming edit may break the styling "
+        "standard (advisory; the write proceeds):\n" + "\n".join(lines)
+    )
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": msg,
+        }
+    }))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        pass  # never block a tool call on hook failure
+    sys.exit(0)

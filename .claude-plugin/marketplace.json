@@ -26,6 +26,16 @@
         "name": "RMP Software"
       },
       "homepage": "https://github.com/rmp-software/claude-kit/tree/main/plugins/file-standard"
+    },
+    {
+      "name": "tailwind-standard",
+      "description": "RMP's token-discipline styling standard for any Tailwind v4 repo, with an optional shadcn-primitive layer that auto-activates when shadcn is detected. A SessionStart hook injects a short pointer when it detects Tailwind v4 (appending the shadcn paragraph only when shadcn is also present, and staying silent off Tailwind); an on-demand skill holds the full guide; a non-blocking PreToolUse hook warns on banned styling patterns (var() in a className, raw hex always; direct radix/shadcn imports only when shadcn is present) at write time.",
+      "source": "./plugins/tailwind-standard",
+      "category": "workflow",
+      "author": {
+        "name": "RMP Software"
+      },
+      "homepage": "https://github.com/rmp-software/claude-kit/tree/main/plugins/tailwind-standard"
     }
   ]
 }

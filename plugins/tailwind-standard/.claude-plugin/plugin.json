@@ -1,0 +1,23 @@
+{
+  "name": "tailwind-standard",
+  "displayName": "Tailwind v4 Styling Standard",
+  "description": "RMP's token-discipline styling standard for any Tailwind v4 repo, with an optional shadcn-primitive layer that auto-activates when shadcn is detected. The SessionStart pointer is gated on Tailwind (the shadcn paragraph is conditional); an on-demand skill holds the full guide; a non-blocking PreToolUse hook lints styling at write time (the radix-import check only when shadcn is present).",
+  "version": "0.1.0",
+  "author": {
+    "name": "RMP Software"
+  },
+  "homepage": "https://github.com/rmp-software/claude-kit/tree/main/plugins/tailwind-standard",
+  "repository": "https://github.com/rmp-software/claude-kit",
+  "license": "MIT",
+  "keywords": [
+    "hooks",
+    "convention",
+    "tailwind",
+    "tailwindcss",
+    "shadcn",
+    "design-tokens",
+    "styling"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}
