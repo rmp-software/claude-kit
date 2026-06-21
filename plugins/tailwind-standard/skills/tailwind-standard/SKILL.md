@@ -1,15 +1,18 @@
 ---
-name: tailwind-shadcn-standard
-description: The RMP styling standard for Tailwind v4 + shadcn + design-token codebases. Use BEFORE writing or editing any UI — components, screens, styling, className work, choosing a primitive, adding a token, or reviewing styling. Covers the @theme token vocabulary, the no-var()-in-className rule, buy-commodity-build-domain, the shared UI primitive boundary, the runtime-bridge exception, scale-snapping, and a grep-able compliance checklist.
+name: tailwind-standard
+description: The RMP Tailwind v4 token-discipline styling standard, with an optional shadcn-primitive layer. Use BEFORE writing or editing any UI — components, screens, styling, className work, adding a token, choosing a primitive, or reviewing styling. Covers the @theme token vocabulary, the no-var()-in-className rule, no raw hex, the runtime-bridge exception, scale-snapping, `cn()`, and a grep-able compliance checklist. The shadcn layer (buy-commodity-build-domain, the shared-UI primitive boundary, aliases-stay-internal) applies only when the repo uses shadcn.
 ---
 
-# Tailwind v4 + shadcn styling standard
+# Tailwind v4 styling standard
 
-How to style in a Tailwind v4 + shadcn + design-token codebase. The tokens are
-the utility vocabulary; primitives are bought, not hand-rolled; the domain is
-built. This is generalized — wherever it says "the shared UI package", "the
-tokens package", or "the app's `@theme`", read your repo's actual names
-(e.g. `@crivelo/ui`, `@crivelo/tokens`, `apps/<app>/app/*-theme.css`).
+How to style in a Tailwind v4 `@theme` token codebase. The tokens are the utility
+vocabulary; spacing follows the scale; arbitraries are reserved for runtime
+bridges. Tailwind v4 is the only thing this standard requires. If the repo ALSO
+uses shadcn, the **shadcn layer** at the bottom applies on top (commodity UI is
+bought, the domain is built, primitives come from one shared package). This is
+generalized — wherever it says "the shared UI package", "the tokens package", or
+"the app's `@theme`", read your repo's actual names (e.g. `@crivelo/ui`,
+`@crivelo/tokens`, `apps/<app>/app/*-theme.css`).
 
 ## 1. Design-system tiers
 
@@ -52,49 +55,7 @@ else, colour comes from a token utility.
 <div className="bg-[#1a1a1a]" />             // ❌ raw hex in a className
 ```
 
-### shadcn alias utilities stay internal
-
-shadcn's primitives use alias utilities (`bg-background`, `text-muted-foreground`,
-`bg-primary`). Those are **internal to the shared UI package's `src/ui/**`** —
-the place that wraps shadcn/radix. **App and feature code uses the house
-neutrals** (`bg-surface`, `text-fg`), not the shadcn aliases.
-
-## 3. Buy commodity UI, build the domain
-
-Don't re-implement a solved interaction. **Buy** the commodity — modal, drawer,
-toast, dialog, focus-trap, animation — from an established library. **Build** the
-domain — the bespoke product logic and screens. The commodity is a liability to
-hand-roll; the domain is the product.
-
-The toolkit:
-- **shadcn primitives** for commodity UI.
-- **`cn()`** (clsx + tailwind-merge) for conditional/variant classes via
-  className lookups (`Record<status, classes>`), never an inline `style` ternary.
-- **`motion`** (`motion/react`) for animation, gated on `prefers-reduced-motion`.
-  No new manual `setInterval` animation loops; no new `@keyframes` authored in
-  component (`.tsx`/`.ts`) code — keyframes live in `.css` sources.
-
-### The shared UI package is the single source of truth for primitives
-
-- **Apps NEVER import `radix-ui` / `@radix-ui/*` / shadcn registry paths
-  directly.** Every primitive is imported from the shared UI package
-  (`<pkg>/button`, `<pkg>/dialog`, …).
-- A primitive that **doesn't exist yet is added TO the shared package**, never
-  kept in an app's scope.
-- An app MAY add a thin **wrapper** that imports a shared primitive and extends
-  it (restyle, add variants/props, bigger sizes). A wrapper imports the shared
-  base — it is an extension, **not a new primitive**. Decide case-by-case:
-  generally-useful change → push it into the shared primitive; app-specific look
-  → app-local wrapper.
-- The only file that wraps radix/shadcn directly is the shared UI package's own
-  `src/ui/**`.
-
-```tsx
-import { Button } from "@crivelo/ui/button";   // ✅ from the shared package
-import * as Dialog from "@radix-ui/react-dialog"; // ❌ radix direct in an app
-```
-
-## 4. The runtime-bridge exception
+## 3. The runtime-bridge exception
 
 `[var(--…)]` / inline-style vars are reserved for **runtime bridges only**: a
 value **computed per render from JS** that no static utility can express —
@@ -122,7 +83,7 @@ Note the colour-vs-position distinction the lint backstop relies on:
 token that should be a utility); `left-`/`top-`/`h-`/`w-`/`translate-` bridges
 are positional/size and legitimately dynamic.
 
-## 5. Scale-snapping and arbitraries
+## 4. Scale-snapping and arbitraries
 
 Spacing/size follows the **scale** (`gap-2.5`, `p-4`, `rounded-md`). **Snap a
 `[NNpx]` to a scale step ONLY on an exact match** — never nearest-step rounding.
@@ -131,18 +92,75 @@ Genuinely off-scale one-offs stay documented arbitraries (`min-h-[44px]`,
 focus ring kept as `ring-[var(--focus-ring)]`) is a documented arbitrary, not a
 violation — but it's the exception, declared in the spec.
 
+## 5. `cn()` for conditional/variant classes
+
+Conditional and variant classes go through **`cn()`** (clsx + tailwind-merge) as
+className lookups (`Record<status, classes>`), never an inline `style` ternary.
+A finite set maps to static classes; `cn()` merges them deterministically.
+
 ## 6. Inline `style` is a last resort
 
 Only for what cannot be a utility: computed dimensions (progress-bar fill width),
-SVG geometry, state-driven transforms. With `motion`, animation rarely needs a
-manual `style`. No `var(--…)` inside a `style` prop except a true runtime bridge
-(a custom property carrying a per-render JS value).
+SVG geometry, state-driven transforms. No `var(--…)` inside a `style` prop except
+a true runtime bridge (a custom property carrying a per-render JS value).
+
+---
+
+## shadcn layer (only when the repo uses shadcn)
+
+Everything below applies ONLY in a repo that uses shadcn. A Tailwind-v4-only repo
+without shadcn skips this section entirely — it may import radix directly and
+legitimately, and has no shared-UI-package boundary to honour.
+
+### Buy commodity UI, build the domain
+
+Don't re-implement a solved interaction. **Buy** the commodity — modal, drawer,
+toast, dialog, focus-trap, animation — from an established library. **Build** the
+domain — the bespoke product logic and screens. The commodity is a liability to
+hand-roll; the domain is the product.
+
+The toolkit:
+- **shadcn primitives** for commodity UI.
+- **`motion`** (`motion/react`) for animation, gated on `prefers-reduced-motion`.
+  No new manual `setInterval` animation loops; no new `@keyframes` authored in
+  component (`.tsx`/`.ts`) code — keyframes live in `.css` sources.
+
+### The shared UI package is the single source of truth for primitives
+
+- **Apps NEVER import `radix-ui` / `@radix-ui/*` / shadcn registry paths
+  directly.** Every primitive is imported from the shared UI package
+  (`<pkg>/button`, `<pkg>/dialog`, …).
+- A primitive that **doesn't exist yet is added TO the shared package**, never
+  kept in an app's scope.
+- An app MAY add a thin **wrapper** that imports a shared primitive and extends
+  it (restyle, add variants/props, bigger sizes). A wrapper imports the shared
+  base — it is an extension, **not a new primitive**. Decide case-by-case:
+  generally-useful change → push it into the shared primitive; app-specific look
+  → app-local wrapper.
+- The only file that wraps radix/shadcn directly is the shared UI package's own
+  `src/ui/**`.
+
+```tsx
+import { Button } from "@crivelo/ui/button";   // ✅ from the shared package
+import * as Dialog from "@radix-ui/react-dialog"; // ❌ radix direct in an app
+```
+
+### shadcn alias utilities stay internal
+
+shadcn's primitives use alias utilities (`bg-background`, `text-muted-foreground`,
+`bg-primary`). Those are **internal to the shared UI package's `src/ui/**`** —
+the place that wraps shadcn/radix. **App and feature code uses the house
+neutrals** (`bg-surface`, `text-fg`), not the shadcn aliases.
+
+---
 
 ## Compliance checklist
 
 Grep-able banned patterns (the canonical ruleset for both the lint backstop and
 the spec-compliance reviewer). Each is a violation **unless** the documented
 exception applies.
+
+### Always (Tailwind core)
 
 - `\[(color:)?var\(--` — a design-token `var(--…)` inside a className arbitrary.
   Write the registered utility (`bg-surface`, `text-fg-3`, `border-border`).
@@ -154,9 +172,16 @@ exception applies.
   runtime bridge custom property, and the token CSS sources.
 - `style=\{\{` (in new app/component code) — inline `style` outside the
   last-resort cases (computed dimensions, SVG geometry, state-driven transforms).
+
+### shadcn-only (when the repo uses shadcn)
+
 - `from ['"]@?radix-ui` (and `@/components/ui/*` shadcn registry paths) — an app
   importing radix/shadcn directly. Import from the shared UI package instead.
-  EXEMPT: the shared UI package's own `src/ui/**`.
+  EXEMPT: the shared UI package's own `src/ui/**`. (Skip entirely in a no-shadcn
+  repo — direct radix is fine there.)
+- shadcn alias utilities (`bg-background`, `text-muted-foreground`, `bg-primary`)
+  used OUTSIDE the shared UI package's `src/ui/**` — app/feature code uses the
+  house neutrals (`bg-surface`, `text-fg`), not the shadcn aliases.
 - `setInterval` (for animation) — new JS-driven animation. Use `motion` gated on
   `prefers-reduced-motion`. (Existing usages are grandfathered.)
 - `@keyframes` in `.tsx`/`.ts` — keyframes authored in component code. Keyframes

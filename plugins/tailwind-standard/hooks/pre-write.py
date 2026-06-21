@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse backstop for the tailwind-shadcn-standard plugin.
+"""PreToolUse backstop for the tailwind-standard plugin.
 
 Non-blocking write-time lint. When a Write/Edit/MultiEdit targets a UI-ish file
 and the incoming text contains a banned styling pattern, emit an advisory
@@ -14,15 +14,23 @@ like file-standard). We flag only high-signal violations:
      `left-[var(--puck-x)]` / `h-[var(--pad-h)]` do NOT trip it).
   3. a raw hex colour inside a `className` / `class=` string.
   4. an app importing `radix-ui` / `@radix-ui/*` / a shadcn registry path from a
-     file that is NOT under a shared UI package's `src/ui/**` (advisory).
+     file that is NOT under a shared UI package's `src/ui/**` (advisory) —
+     SHADCN-GATED: this check fires ONLY when the file's repo actually uses
+     shadcn. A Tailwind-only (no-shadcn) repo may use radix legitimately, so if
+     detection is negative or ambiguous we favour the false-negative and skip it.
 
-Never raises; on any error it stays silent and lets the tool run.
+Checks 1–3 are Tailwind core and always fire. Never raises; on any error it
+stays silent and lets the tool run.
 """
 
+import functools
 import json
 import os
 import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _detect import detect_stack
 
 # --- File scoping -------------------------------------------------------------
 # Only lint files where these patterns are meaningful. .tsx/.jsx are the core;
@@ -57,6 +65,19 @@ HEX_RE = re.compile(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?:[0-9a-fA-F]{2})?\b")
 RADIX_IMPORT_RE = re.compile(
     r"""(?:import|from)\s+['"](?:radix-ui|@radix-ui/[^'"]+|@/components/ui/[^'"]+)['"]"""
 )
+
+
+@functools.lru_cache(maxsize=None)
+def repo_uses_shadcn(scan_dir):
+    """Whether the repo containing `scan_dir` uses shadcn. lru_cache'd on the
+    resolved dir so repeated edits in one invocation don't rescan. On detection
+    failure/ambiguity this is False (favour the false-negative on the radix check).
+    """
+    try:
+        _, shadcn = detect_stack(scan_dir)
+        return shadcn
+    except Exception:
+        return False
 
 
 def is_ui_package_internal(abs_path):
@@ -102,7 +123,7 @@ def lint_text(text, abs_path):
     findings = []
     is_jsx = abs_path.lower().endswith(JSX_EXT)
 
-    # 1. [color:var(--…)] — highest signal, any source file.
+    # 1. [color:var(--…)] — highest signal, any source file. (Tailwind core.)
     for m in COLOR_VAR_RE.finditer(text):
         findings.append((
             snippet(text, m.start(), m.end()),
@@ -111,7 +132,7 @@ def lint_text(text, abs_path):
             "a gap to fix in `@theme`. " + BRIDGE_NOTE,
         ))
 
-    # 2. colour-ish bracket utility consuming a token var().
+    # 2. colour-ish bracket utility consuming a token var(). (Tailwind core.)
     for m in COLORISH_VAR_RE.finditer(text):
         # Avoid double-reporting the [color:var(--…)] case (already covered).
         if "[color:var(" in m.group(0):
@@ -124,6 +145,7 @@ def lint_text(text, abs_path):
         ))
 
     # 3. raw hex inside a className / class= string (JSX/className contexts only).
+    #    (Tailwind core.)
     if is_jsx:
         for m in CLASS_ATTR_RE.finditer(text):
             value = m.group(1) or m.group(2) or m.group(3) or ""
@@ -136,14 +158,18 @@ def lint_text(text, abs_path):
                 ))
 
     # 4. direct radix/shadcn import outside the shared UI package.
+    #    SHADCN-GATED: only meaningful where the repo actually uses shadcn. A
+    #    Tailwind-only repo may import radix directly and legitimately, so we skip
+    #    this check unless shadcn is detected (favour the false-negative).
     if abs_path.lower().endswith(SOURCE_EXT) and not is_ui_package_internal(abs_path):
-        for m in RADIX_IMPORT_RE.finditer(text):
-            findings.append((
-                snippet(text, m.start(), m.end(), pad=8),
-                "Apps never import `radix-ui` / shadcn directly — primitives come "
-                "from the shared UI package (e.g. `@crivelo/ui/button`). A missing "
-                "primitive is added TO that package, not the app.",
-            ))
+        if repo_uses_shadcn(os.path.dirname(abs_path)):
+            for m in RADIX_IMPORT_RE.finditer(text):
+                findings.append((
+                    snippet(text, m.start(), m.end(), pad=8),
+                    "Apps never import `radix-ui` / shadcn directly — primitives come "
+                    "from the shared UI package (e.g. `@crivelo/ui/button`). A missing "
+                    "primitive is added TO that package, not the app.",
+                ))
 
     return findings
 
@@ -177,7 +203,7 @@ def main():
         for (snip, advice) in all_findings
     ]
     msg = (
-        "tailwind-shadcn-standard: the incoming edit may break the styling "
+        "tailwind-standard: the incoming edit may break the styling "
         "standard (advisory; the write proceeds):\n" + "\n".join(lines)
     )
     print(json.dumps({

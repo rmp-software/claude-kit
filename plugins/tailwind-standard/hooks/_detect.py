@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""SessionStart hook for the tailwind-shadcn-standard plugin.
+"""Shared stack detection for the tailwind-standard plugin hooks.
 
-One job, best-effort and non-fatal: when the session's repo uses Tailwind v4 +
-shadcn, inject a SHORT pointer to the RMP styling standard as additionalContext
-so every session (and inheriting subagent) knows the hard invariants before it
-edits UI, and knows to pull the full guide from the `tailwind-shadcn-standard`
-skill.
+Dependency-free, side-effect-free, never raises. Both hooks import it via:
 
-The standard only makes sense on that stack, so this hook DETECTS it and stays
-SILENT otherwise. Detection is cheap, bounded, and wrapped: it reads a handful
-of files, caps the directory scan depth, and on ANY error or ambiguity defaults
-to staying silent (emitting no additionalContext) rather than injecting. The
-hook must never break session start.
+    import os, sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from _detect import detect_stack
+
+`detect_stack(cwd)` returns the two signals INDEPENDENTLY as a tuple
+`(tailwind_v4, shadcn)`. Tailwind v4 is the hard requirement; shadcn is an
+OPTIONAL layer that can only exist where Tailwind already does. On any error or
+ambiguity it returns `(False, False)` rather than guessing.
+
+Detection is cheap and bounded: it reads a handful of files, caps the directory
+scan depth, skips heavy dirs, and (in a monorepo) also scans the repo root so an
+app-dir caller still sees a shared-UI package's shadcn signal.
 """
 
-import json
 import os
 import re
-import sys
 
 # --- Bounded-scan limits (keep detection cheap; never walk a whole tree) ------
 MAX_DEPTH = 2            # directory levels below cwd to descend
@@ -27,27 +28,6 @@ SKIP_DIRS = {
     "node_modules", ".git", ".next", "dist", "build", "out",
     ".turbo", "coverage", ".vercel", ".cache", "vendor",
 }
-
-POINTER = """\
-# Tailwind v4 + shadcn styling standard (claude-kit: tailwind-shadcn-standard)
-
-This repo styles with Tailwind v4 `@theme` tokens + shadcn primitives. Before
-writing or editing UI, follow the RMP styling standard — invoke the
-`tailwind-shadcn-standard` skill for the full guide. Hard invariants:
-- NO design-token `var(--…)` inside a className. A token is a utility:
-  `text-fg-3` / `bg-surface` / `border-border` / `text-h4`, NEVER
-  `text-[color:var(--fg-3)]` / `bg-[var(--surface)]`. A token missing a utility
-  is a gap to fix in `@theme`, not a reason to reach for `[var(--…)]`.
-- Tokens are the utility vocabulary; no raw hex in a className.
-- Buy commodity UI (modal/drawer/toast/dialog/focus/animation), build the domain.
-  Primitives come from the shared UI package; apps never import radix/shadcn direct.
-- Arbitrary `[var(--…)]` / inline-style vars are reserved for RUNTIME BRIDGES only
-  (per-render computed values: drag coords, measured/%/clamp() dims, animation
-  offset, alpha-blended rgba()). A finite enumerable set is NOT a runtime bridge —
-  map it to a static className lookup.
-- Spacing/size follows the scale; snap `[NNpx]` to a scale step only on an EXACT
-  match (no nearest-step rounding); genuine off-scale values stay documented arbitraries.
-"""
 
 # Tailwind v4: a major-4+ tailwindcss dep, or the v4 postcss plugin.
 TAILWIND_DEP_RE = re.compile(r'"tailwindcss"\s*:\s*"([^"]+)"')
@@ -147,11 +127,16 @@ def scan_roots(cwd):
 
 
 def detect_stack(cwd):
-    """Best-effort: return True only if BOTH Tailwind v4 AND shadcn are signalled.
+    """Best-effort: return the two signals INDEPENDENTLY as (tailwind_v4, shadcn).
 
-    Scans the cwd and (when in a monorepo) the repo root, so an app-dir session
+    Tailwind v4 is the hard requirement; shadcn is an optional layer (it can only
+    exist where Tailwind already does, but the reverse is not true — a repo may use
+    Tailwind v4 + tokens WITHOUT shadcn). The signals are computed separately so a
+    caller can gate on Tailwind alone and treat shadcn as conditional.
+
+    Scans the cwd and (when in a monorepo) the repo root, so an app-dir caller
     still sees a shared-UI package's shadcn signal. Bounded, side-effect-free,
-    and silent on any error.
+    and returns (False, False) on any error.
     """
     try:
         tailwind = False
@@ -184,42 +169,7 @@ def detect_stack(cwd):
                             shadcn = True
 
                 if tailwind and shadcn:
-                    return True
-        return tailwind and shadcn
+                    return (True, True)
+        return (tailwind, shadcn)
     except Exception:
-        return False
-
-
-def session_cwd():
-    try:
-        raw = sys.stdin.read()
-        if raw.strip():
-            data = json.loads(raw)
-            cwd = data.get("cwd")
-            if cwd and os.path.isdir(cwd):
-                return cwd
-    except Exception:
-        pass
-    return os.getcwd()
-
-
-def main():
-    cwd = session_cwd()
-    if not detect_stack(cwd):
-        # Off-stack (or ambiguous) — stay silent. Emit nothing.
-        return
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": POINTER,
-        }
-    }))
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception:
-        # Never break session start; on any failure, stay silent.
-        pass
-    sys.exit(0)
+        return (False, False)

@@ -56,7 +56,7 @@ Parse `<compliance_rules>` and turn each `<rule>` into a check. Honor the struct
   (wrong wording, punctuation, capitalization) where the code emits one of these strings.
 - **`<design_tokens>`** — the allowed token sources and the "no raw values" rule. Use any
   `grep` patterns (e.g. raw hex) on changed files. For a Tailwind v4 + shadcn repo, the
-  canonical styling compliance rules also live in the `tailwind-shadcn-standard` skill's
+  canonical styling compliance rules also live in the `tailwind-standard` skill's
   `## Compliance checklist` (claude-kit) — an app's `app_spec.txt` may defer to it instead
   of re-listing those grep patterns. If the app's spec is thin here and that skill is
   present, fall back to its checklist (no-`var()`-in-className, no raw hex, primitives from
