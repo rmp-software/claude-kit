@@ -13,11 +13,15 @@ like file-standard). We flag only high-signal violations:
      fill/stroke/ring/shadow prefix (so positional/size runtime bridges like
      `left-[var(--puck-x)]` / `h-[var(--pad-h)]` do NOT trip it).
   3. a raw hex colour inside a `className` / `class=` string.
-  4. an app importing `radix-ui` / `@radix-ui/*` / a shadcn registry path from a
-     file that is NOT under a shared UI package's `src/ui/**` (advisory) —
-     SHADCN-GATED: this check fires ONLY when the file's repo actually uses
-     shadcn. A Tailwind-only (no-shadcn) repo may use radix legitimately, so if
-     detection is negative or ambiguous we favour the false-negative and skip it.
+  4. app/feature code importing `radix-ui` / `@radix-ui/*` DIRECTLY from a file
+     that is NOT a shadcn primitives file (advisory). The primitives dir is
+     DETECTED per-repo (a `components.json` `aliases.ui` segment, plus common
+     fallback segments), so this works for a plain single-app shadcn layout
+     (`@/components/ui`) and any turborepo UI-package layout alike — not just one
+     hardcoded path. SHADCN-GATED: this check fires ONLY when the file's repo
+     actually uses shadcn. A Tailwind-only (no-shadcn) repo may use radix
+     legitimately, so if detection is negative or ambiguous we favour the
+     false-negative and skip it.
 
 Checks 1–3 are Tailwind core and always fire. Never raises; on any error it
 stays silent and lets the tool run.
@@ -61,10 +65,29 @@ CLASS_ATTR_RE = re.compile(
 )
 HEX_RE = re.compile(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?:[0-9a-fA-F]{2})?\b")
 
-# --- Pattern 4: direct radix/shadcn import outside the shared UI package ------
+# --- Pattern 4: direct radix import outside the primitives dir ---------------
+# Only a DIRECT radix import is a violation. Importing your own shadcn primitives
+# (`@/components/ui/button`, `@org/ui/button`) is CORRECT, not a violation.
 RADIX_IMPORT_RE = re.compile(
-    r"""(?:import|from)\s+['"](?:radix-ui|@radix-ui/[^'"]+|@/components/ui/[^'"]+)['"]"""
+    r"""(?:import|from)\s+['"](?:radix-ui|@radix-ui/[^'"]+)['"]"""
 )
+
+# Fallback primitive-dir path segments. A file whose normalized path contains any
+# of these is treated as a primitives file (where wrapping radix is legitimate),
+# even without a components.json. Covers the plain single-app shadcn layout
+# (`components/ui`), crivelo's monorepo (`ui/src/ui`), and common turborepo
+# UI-package layouts.
+PRIMITIVE_DIR_SEGMENTS = (
+    "/components/ui/",
+    "/ui/src/ui/",
+    "/src/components/ui/",
+    "/packages/ui/src/",
+    "/packages/ui/components/",
+)
+
+# Bounded walk-up budget when searching for a components.json (mirrors _detect's
+# monorepo_root idiom: cap the levels, never walk the whole filesystem).
+_COMPONENTS_JSON_MAX_LEVELS = 8
 
 
 @functools.lru_cache(maxsize=None)
@@ -80,10 +103,73 @@ def repo_uses_shadcn(scan_dir):
         return False
 
 
-def is_ui_package_internal(abs_path):
-    """True for a shared UI package's own primitive source (…/ui/src/ui/**)."""
+def _alias_ui_segment(alias):
+    """Turn a shadcn `aliases.ui` value into the trailing path segment(s).
+
+    Strips a leading alias prefix (`@/`, `~/`, or `@<word>/`) and returns the
+    remainder wrapped in slashes for a containment test, e.g.
+      `@/components/ui`  -> `/components/ui/`
+      `~/components/ui`  -> `/components/ui/`
+      `@org/ui`          -> `/ui/`
+    Returns "" when nothing usable remains (don't match on an empty segment).
+    """
+    if not isinstance(alias, str) or not alias.strip():
+        return ""
+    a = alias.strip().replace("\\", "/")
+    # Strip a leading alias prefix: `@/`, `~/`, or `@<word>/`.
+    a = re.sub(r"^(?:@/|~/|@[\w.-]+/)", "", a)
+    a = a.strip("/")
+    if not a:
+        return ""
+    return "/" + a + "/"
+
+
+@functools.lru_cache(maxsize=None)
+def _components_json_segment(start_dir):
+    """Walk up from `start_dir` (bounded) for a `components.json`; return its
+    `aliases.ui` trailing segment (e.g. `/components/ui/`), or "" if none/parse
+    error. Cached by start dir. Never raises."""
+    try:
+        d = os.path.abspath(start_dir)
+        for _ in range(_COMPONENTS_JSON_MAX_LEVELS):
+            cj = os.path.join(d, "components.json")
+            if os.path.isfile(cj):
+                try:
+                    with open(cj, "r", encoding="utf-8", errors="ignore") as fh:
+                        cfg = json.load(fh)
+                    alias = ((cfg or {}).get("aliases") or {}).get("ui")
+                    return _alias_ui_segment(alias)
+                except Exception:
+                    # Found the config but couldn't parse it — fall back to the
+                    # static segments (handled by the caller); no alias segment.
+                    return ""
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+    except Exception:
+        pass
+    return ""
+
+
+def is_primitives_file(abs_path):
+    """True when `abs_path` is a shadcn PRIMITIVES file — the place where wrapping
+    radix directly is legitimate. Detected per-repo (favour false-negatives, i.e.
+    don't warn, over false-positives):
+
+    - Walk up for a `components.json` and match its `aliases.ui` trailing segment
+      (so a plain app's `@/components/ui` and a monorepo's `@org/ui` both work).
+    - PLUS a set of common fallback segments (`/components/ui/`, `/ui/src/ui/`, …)
+      so layouts without a components.json (or with an unparseable one) still
+      exempt their primitives dir.
+
+    Never raises; on any error it falls through to the fallback segments.
+    """
     p = abs_path.replace("\\", "/")
-    return "/ui/src/ui/" in p or p.endswith("/ui/src/ui")
+    if any(seg in p for seg in PRIMITIVE_DIR_SEGMENTS):
+        return True
+    seg = _components_json_segment(os.path.dirname(abs_path))
+    return bool(seg) and seg in p
 
 
 def candidate_texts(tool_name, tool_input):
@@ -157,18 +243,21 @@ def lint_text(text, abs_path):
                     "literal. Hex belongs only in the token CSS source files.",
                 ))
 
-    # 4. direct radix/shadcn import outside the shared UI package.
+    # 4. direct radix import outside the primitives dir.
     #    SHADCN-GATED: only meaningful where the repo actually uses shadcn. A
     #    Tailwind-only repo may import radix directly and legitimately, so we skip
-    #    this check unless shadcn is detected (favour the false-negative).
-    if abs_path.lower().endswith(SOURCE_EXT) and not is_ui_package_internal(abs_path):
+    #    this check unless shadcn is detected (favour the false-negative). The
+    #    primitives dir is DETECTED (components.json aliases.ui + fallbacks), so
+    #    this is portable across a plain single-app shadcn layout and any monorepo.
+    if abs_path.lower().endswith(SOURCE_EXT) and not is_primitives_file(abs_path):
         if repo_uses_shadcn(os.path.dirname(abs_path)):
             for m in RADIX_IMPORT_RE.finditer(text):
                 findings.append((
                     snippet(text, m.start(), m.end(), pad=8),
-                    "Apps never import `radix-ui` / shadcn directly — primitives come "
-                    "from the shared UI package (e.g. `@crivelo/ui/button`). A missing "
-                    "primitive is added TO that package, not the app.",
+                    "Primitives wrap radix — import the shadcn PRIMITIVE instead of "
+                    "radix directly (`@/components/ui/*`, or a shared UI package in a "
+                    "monorepo). A missing primitive is generated/added to the "
+                    "primitives layer, not imported from radix in app code.",
                 ))
 
     return findings

@@ -47,10 +47,11 @@ full guide. Hard invariants:
 SHADCN_LAYER = """
 
 - shadcn layer (this repo uses shadcn): buy commodity UI (modal/drawer/toast/
-  dialog/focus/animation), build the domain. Primitives come from the shared UI
-  package; apps NEVER import radix/shadcn directly. shadcn alias utilities
-  (`bg-background`, `text-muted-foreground`) stay internal to the UI package's
-  `src/ui/**`; app code uses the house neutrals."""
+  dialog/focus/animation), build the domain. Import shadcn primitives (your
+  `components/ui`, or a shared UI package in a monorepo) — NEVER import radix
+  directly in app code; a missing primitive is generated/added to the primitives
+  layer. shadcn alias utilities (`bg-background`, `text-muted-foreground`) stay
+  internal to the primitives layer; app code uses the house token utilities."""
 
 
 def session_cwd():

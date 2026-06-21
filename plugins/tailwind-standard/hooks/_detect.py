@@ -117,12 +117,46 @@ def monorepo_root(cwd):
         return None
 
 
+# Markers of a project/app root whose signals must be scanned from a subdir.
+PROJECT_ROOT_MARKERS = ("package.json", "components.json")
+
+
+def project_root(cwd):
+    """Walk up from cwd for the nearest dir holding a project-root marker
+    (`package.json` / `components.json`). None if none found.
+
+    A SINGLE-APP shadcn project has no monorepo marker, yet from a subdir like
+    `app/` its `package.json` + `components.json` (the cva/Tailwind/shadcn signals)
+    live one or more levels UP. Without this, `detect_stack('…/app')` would miss
+    them and the shadcn gate would never fire in a plain app. Bounded walk-up,
+    never raises.
+    """
+    try:
+        d = os.path.abspath(cwd)
+        while True:
+            for marker in PROJECT_ROOT_MARKERS:
+                if os.path.exists(os.path.join(d, marker)):
+                    return d
+            parent = os.path.dirname(d)
+            if parent == d:
+                return None
+            d = parent
+    except Exception:
+        return None
+
+
 def scan_roots(cwd):
-    """The bounded set of roots to scan: cwd, plus the monorepo root if distinct."""
+    """The bounded set of roots to scan: cwd, the nearest project root (so an
+    app-subdir caller sees the app's own package.json/components.json), and the
+    monorepo root (so a shared-UI package's signal is seen) — each added only when
+    distinct."""
     roots = [os.path.abspath(cwd)]
-    root = monorepo_root(cwd)
-    if root and os.path.abspath(root) != roots[0]:
-        roots.append(os.path.abspath(root))
+    for finder in (project_root, monorepo_root):
+        r = finder(cwd)
+        if r:
+            rp = os.path.abspath(r)
+            if rp not in roots:
+                roots.append(rp)
     return roots
 
 

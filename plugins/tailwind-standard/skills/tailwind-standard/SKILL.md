@@ -1,6 +1,6 @@
 ---
 name: tailwind-standard
-description: The RMP Tailwind v4 token-discipline styling standard, with an optional shadcn-primitive layer. Use BEFORE writing or editing any UI — components, screens, styling, className work, adding a token, choosing a primitive, or reviewing styling. Covers the @theme token vocabulary, the no-var()-in-className rule, no raw hex, the runtime-bridge exception, scale-snapping, `cn()`, and a grep-able compliance checklist. The shadcn layer (buy-commodity-build-domain, the shared-UI primitive boundary, aliases-stay-internal) applies only when the repo uses shadcn.
+description: The RMP Tailwind v4 token-discipline styling standard, with an optional shadcn-primitive layer. Use BEFORE writing or editing any UI — components, screens, styling, className work, adding a token, choosing a primitive, or reviewing styling. Covers the @theme token vocabulary, the no-var()-in-className rule, no raw hex, the runtime-bridge exception, scale-snapping, `cn()`, and a grep-able compliance checklist. The shadcn layer (buy-commodity-build-domain, the primitives-wrap-radix boundary, aliases-stay-internal) applies only when the repo uses shadcn; its shared-UI-package rule is a monorepo-only convention.
 ---
 
 # Tailwind v4 styling standard
@@ -9,10 +9,13 @@ How to style in a Tailwind v4 `@theme` token codebase. The tokens are the utilit
 vocabulary; spacing follows the scale; arbitraries are reserved for runtime
 bridges. Tailwind v4 is the only thing this standard requires. If the repo ALSO
 uses shadcn, the **shadcn layer** at the bottom applies on top (commodity UI is
-bought, the domain is built, primitives come from one shared package). This is
-generalized — wherever it says "the shared UI package", "the tokens package", or
-"the app's `@theme`", read your repo's actual names (e.g. `@crivelo/ui`,
-`@crivelo/tokens`, `apps/<app>/app/*-theme.css`).
+bought, the domain is built, app code imports the shadcn primitive — never radix
+directly). This is generalized — wherever it says "the tokens package" or "the
+app's `@theme`", read your repo's actual names (e.g. `@crivelo/tokens`,
+`apps/<app>/app/*-theme.css`); the primitives live wherever your shadcn
+`aliases.ui` points (`@/components/ui` single-app, a shared `@org/ui` package in a
+monorepo). The shared-UI-package boundary is a **monorepo-only** convention,
+called out as such below.
 
 ## 1. Design-system tiers
 
@@ -110,7 +113,9 @@ a true runtime bridge (a custom property carrying a per-render JS value).
 
 Everything below applies ONLY in a repo that uses shadcn. A Tailwind-v4-only repo
 without shadcn skips this section entirely — it may import radix directly and
-legitimately, and has no shared-UI-package boundary to honour.
+legitimately. The first sub-sections are **universal** (any shadcn setup,
+single-app or monorepo); the last one — a shared UI package owning primitives —
+is a **monorepo-only** convention, labelled as such.
 
 ### Buy commodity UI, build the domain
 
@@ -125,32 +130,58 @@ The toolkit:
   No new manual `setInterval` animation loops; no new `@keyframes` authored in
   component (`.tsx`/`.ts`) code — keyframes live in `.css` sources.
 
-### The shared UI package is the single source of truth for primitives
+### Primitives wrap radix — app code imports the primitive, NOT radix (universal)
 
-- **Apps NEVER import `radix-ui` / `@radix-ui/*` / shadcn registry paths
-  directly.** Every primitive is imported from the shared UI package
-  (`<pkg>/button`, `<pkg>/dialog`, …).
-- A primitive that **doesn't exist yet is added TO the shared package**, never
+This holds in **any** shadcn setup, single-app or monorepo:
+
+- **App/feature code NEVER imports `radix-ui` / `@radix-ui/*` directly.** It
+  imports the shadcn **primitive**, which is the file that wraps radix.
+- The primitives live **wherever your shadcn `aliases.ui` points** — typically
+  `@/components/ui` in a single app, or a shared `@org/ui` package in a monorepo.
+  That alias dir is the one place radix is wrapped directly.
+- A primitive that **doesn't exist yet is generated/added to the primitives
+  layer** (`npx shadcn add …`, or hand-authored in the primitives dir) — it is
+  **not** hand-rolled with raw radix in app code.
+
+```tsx
+// ✅ single-app shadcn — import your own primitive
+import { Button } from "@/components/ui/button";
+// ❌ radix direct in app/feature code — wrap it in a primitive instead
+import * as Dialog from "@radix-ui/react-dialog";
+```
+
+### shadcn alias utilities stay internal (universal)
+
+shadcn's primitives use alias utilities (`bg-background`, `text-muted-foreground`,
+`bg-primary`). Those stay **internal to the primitives layer** (your `aliases.ui`
+dir — the place that wraps shadcn/radix). **App and feature code uses the house
+token utilities** (`bg-surface`, `text-fg`), not the shadcn aliases.
+
+### Monorepo convention — a shared UI package owns the primitives (monorepo-only)
+
+**This sub-section is monorepo-specific.** It applies ONLY when a shared UI
+package owns the primitives (e.g. crivelo's `@crivelo/ui`). It does **NOT** apply
+to a single-app project, where a local `components/ui` is the correct home for
+primitives.
+
+- Apps **consume the shared package** and do **not** keep their own
+  `components/ui`. Every primitive is imported from the shared package
+  (`<pkg>/button`, `<pkg>/dialog`, …); the shared package's `src/ui/**` is the
+  only place that wraps radix directly.
+- A primitive that doesn't exist yet is added **INTO the shared package**, never
   kept in an app's scope.
 - An app MAY add a thin **wrapper** that imports a shared primitive and extends
   it (restyle, add variants/props, bigger sizes). A wrapper imports the shared
   base — it is an extension, **not a new primitive**. Decide case-by-case:
   generally-useful change → push it into the shared primitive; app-specific look
   → app-local wrapper.
-- The only file that wraps radix/shadcn directly is the shared UI package's own
-  `src/ui/**`.
 
 ```tsx
-import { Button } from "@crivelo/ui/button";   // ✅ from the shared package
-import * as Dialog from "@radix-ui/react-dialog"; // ❌ radix direct in an app
+// ✅ monorepo — import from the shared UI package, not a local components/ui
+import { Button } from "@crivelo/ui/button";
+// ❌ in this monorepo, an app keeping/​importing its own local primitives
+import { Button } from "@/components/ui/button";
 ```
-
-### shadcn alias utilities stay internal
-
-shadcn's primitives use alias utilities (`bg-background`, `text-muted-foreground`,
-`bg-primary`). Those are **internal to the shared UI package's `src/ui/**`** —
-the place that wraps shadcn/radix. **App and feature code uses the house
-neutrals** (`bg-surface`, `text-fg`), not the shadcn aliases.
 
 ---
 
@@ -175,13 +206,21 @@ exception applies.
 
 ### shadcn-only (when the repo uses shadcn)
 
-- `from ['"]@?radix-ui` (and `@/components/ui/*` shadcn registry paths) — an app
-  importing radix/shadcn directly. Import from the shared UI package instead.
-  EXEMPT: the shared UI package's own `src/ui/**`. (Skip entirely in a no-shadcn
+- `from ['"]@?radix-ui` — a direct `@radix-ui` / `radix-ui` import in app/feature
+  code (outside the primitives dir). Import the shadcn primitive instead; the
+  primitive is the file that wraps radix. EXEMPT: the primitives dir itself
+  (detected via `components.json` `aliases.ui` + fallback segments like
+  `/components/ui/`, `/ui/src/ui/`). Importing your OWN primitives
+  (`@/components/ui/*`) is correct, NOT a violation. (Skip entirely in a no-shadcn
   repo — direct radix is fine there.)
 - shadcn alias utilities (`bg-background`, `text-muted-foreground`, `bg-primary`)
-  used OUTSIDE the shared UI package's `src/ui/**` — app/feature code uses the
-  house neutrals (`bg-surface`, `text-fg`), not the shadcn aliases.
+  used OUTSIDE the primitives dir — app/feature code uses the house token
+  utilities (`bg-surface`, `text-fg`), not the shadcn aliases.
+- **Monorepo-only** (a shared UI package owns primitives, e.g. `@crivelo/ui`):
+  an app importing/keeping a local `components/ui` instead of consuming the
+  shared package — a new primitive goes INTO the shared package; an app may add a
+  thin wrapper that extends a shared primitive. This is **not** a universal grep:
+  in a single-app project a local `components/ui` is the correct home.
 - `setInterval` (for animation) — new JS-driven animation. Use `motion` gated on
   `prefers-reduced-motion`. (Existing usages are grandfathered.)
 - `@keyframes` in `.tsx`/`.ts` — keyframes authored in component code. Keyframes

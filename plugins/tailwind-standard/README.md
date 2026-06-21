@@ -40,9 +40,13 @@ arbitraries are reserved for **runtime bridges**. The Tailwind-core invariants:
   arbitraries.
 
 When the repo **also uses shadcn**, the standard adds: **buy commodity UI**
-(modal/drawer/toast/dialog/focus/animation), **build the domain**; primitives
-come from one shared UI package (apps never import radix/shadcn directly); shadcn
-alias utilities stay internal to the UI package's `src/ui/**`.
+(modal/drawer/toast/dialog/focus/animation), **build the domain**; app code
+imports the shadcn **primitive** (your `components/ui`, or a shared UI package in
+a monorepo), **never radix directly**; shadcn alias utilities stay internal to
+the primitives layer. The shared-UI-package boundary (a new primitive goes into
+the shared package, apps don't keep their own `components/ui`) is a **monorepo-
+only** convention — in a single-app project a local `components/ui` is the
+correct home.
 
 The full guide lives in the **`tailwind-standard` skill**.
 
@@ -65,10 +69,17 @@ The full guide lives in the **`tailwind-standard` skill**.
 3. **PreToolUse hook → non-blocking lint backstop.** On `Write`/`Edit`/`MultiEdit`
    to UI-ish files it scans the incoming text for the banned patterns. The
    Tailwind-core checks (`[color:var(--…)]`, a token `var()` in a colour/bg/border
-   bracket utility, raw hex in a className) **always fire.** The **radix/shadcn
-   direct-import check is shadcn-gated** — it fires only when the file's repo
-   actually uses shadcn (a no-shadcn repo may use radix legitimately, so on a
-   negative/ambiguous detection it's skipped). It warns with the file, the
+   bracket utility, raw hex in a className) **always fire.** The **direct-radix
+   import check is shadcn-gated** — it fires only when the file's repo actually
+   uses shadcn (a no-shadcn repo may use radix legitimately, so on a
+   negative/ambiguous detection it's skipped), and only when the file is **not a
+   primitives file**. The primitives dir is **detected per-repo** — it reads a
+   `components.json` `aliases.ui` segment and also exempts common fallback
+   segments (`/components/ui/`, `/ui/src/ui/`, `/src/components/ui/`,
+   `/packages/ui/src/`, `/packages/ui/components/`) — so the check works for a
+   plain Next.js shadcn app (`@/components/ui`) and any turborepo layout alike,
+   not just one hardcoded path. Importing your own primitives
+   (`@/components/ui/*`) is correct and never flagged. It warns with the file, the
    snippet, and the fix; the write always proceeds; Claude self-corrects.
 
 ## Install
